@@ -8,6 +8,8 @@
 
 class Command {
 // TODO: Add your data members
+protected:
+    const char* cmd_line;
 public:
     Command(const char *cmd_line);
 
@@ -19,12 +21,90 @@ public:
     // TODO: Add your extra methods if needed
 };
 
+class SmallShell {
+private:
+    // TODO: Add your data members
+    char* lastPwd;
+    std::string prompt = "smash";
+    SmallShell();
+
+
+public:
+    Command *CreateCommand(const char *cmd_line);
+
+    SmallShell(SmallShell const &) = delete; // disable copy ctor
+    void operator=(SmallShell const &) = delete; // disable = operator
+    static SmallShell &getInstance() // make SmallShell singleton
+    {
+        static SmallShell instance; // Guaranteed to be destroyed.
+        // Instantiated on first use.
+        return instance;
+    }
+
+    ~SmallShell();
+
+    void executeCommand(const char *cmd_line);
+    // TODO: add extra methods as needed
+
+    const std::string& getPrompt() const {
+        return prompt;
+    }
+
+    void setPrompt(const std::string& newPrompt) {
+        prompt = newPrompt;
+    }
+};
+
+//------------------------------ Built in commands ------------------------------
+
 class BuiltInCommand : public Command {
 public:
     BuiltInCommand(const char *cmd_line);
 
     virtual ~BuiltInCommand() {}
 };
+
+class ChpromptCommand : public BuiltInCommand {
+public:
+    ChpromptCommand(const char *cmd_line);
+
+    virtual ~ChpromptCommand() {}
+
+    void execute() override;
+
+};
+
+class ShowPidCommand : public BuiltInCommand {
+public:
+    ShowPidCommand(const char *cmd_line);
+
+    virtual ~ShowPidCommand() {}
+
+    void execute() override;
+
+};
+
+class GetCurrDirCommand : public BuiltInCommand {
+public:
+    GetCurrDirCommand(const char *cmd_line);
+
+    virtual ~GetCurrDirCommand() {}
+
+    void execute() override;
+};
+
+class ChangeDirCommand : public BuiltInCommand {
+// TODO: Add your data members
+    char** lastPwd;
+public:
+    ChangeDirCommand(const char *cmd_line, char **plastPwd);
+
+    virtual ~ChangeDirCommand() {}
+
+    void execute() override;
+};
+
+//------------------------------ External Commands ------------------------------
 
 class ExternalCommand : public Command {
 public:
@@ -65,33 +145,6 @@ public:
     void execute() override;
 };
 
-class ChangeDirCommand : public BuiltInCommand {
-// TODO: Add your data members public:
-    ChangeDirCommand(const char *cmd_line, char **plastPwd);
-
-    virtual ~ChangeDirCommand() {}
-
-    void execute() override;
-};
-
-class GetCurrDirCommand : public BuiltInCommand {
-public:
-    GetCurrDirCommand(const char *cmd_line);
-
-    virtual ~GetCurrDirCommand() {}
-
-    void execute() override;
-};
-
-class ShowPidCommand : public BuiltInCommand {
-public:
-    ShowPidCommand(const char *cmd_line);
-
-    virtual ~ShowPidCommand() {}
-
-    void execute() override;
-};
-
 class JobsList;
 
 class QuitCommand : public BuiltInCommand {
@@ -102,7 +155,6 @@ class QuitCommand : public BuiltInCommand {
 
     void execute() override;
 };
-
 
 class JobsList {
 public:
@@ -199,28 +251,5 @@ public:
     void execute() override;
 };
 
-
-class SmallShell {
-private:
-    // TODO: Add your data members
-    SmallShell();
-
-public:
-    Command *CreateCommand(const char *cmd_line);
-
-    SmallShell(SmallShell const &) = delete; // disable copy ctor
-    void operator=(SmallShell const &) = delete; // disable = operator
-    static SmallShell &getInstance() // make SmallShell singleton
-    {
-        static SmallShell instance; // Guaranteed to be destroyed.
-        // Instantiated on first use.
-        return instance;
-    }
-
-    ~SmallShell();
-
-    void executeCommand(const char *cmd_line);
-    // TODO: add extra methods as needed
-};
 
 #endif //SMASH_COMMAND_H_
