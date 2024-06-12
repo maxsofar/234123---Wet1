@@ -77,6 +77,7 @@ private:
     char* lastPwd;
     std::string prompt = "smash";
     JobsList jobs;
+    std::unordered_map<std::string, std::string> aliases;
     SmallShell();
 
 public:
@@ -96,13 +97,20 @@ public:
     void executeCommand(const char *cmd_line);
     // TODO: add extra methods as needed
 
-    const std::string& getPrompt() const {
-        return prompt;
-    }
+    const std::string& getPrompt() const;
 
-    void setPrompt(const std::string& newPrompt) {
-        prompt = newPrompt;
-    }
+    void setPrompt(const std::string& newPrompt);
+
+    bool isAlias(const std::string& name);
+
+    const std::string& getAlias(const std::string& name);
+
+    void addAlias(const std::string& name, const std::string& command);
+
+    void removeAlias(const std::string& name);
+
+    const std::unordered_map<std::string, std::string>& getAliases() const;
+
 };
 
 //------------------------------ Built in commands ------------------------------
@@ -184,6 +192,9 @@ public:
     virtual ~aliasCommand() {}
 
     void execute() override;
+
+private:
+    bool isValidAlias(const std::string& name);
 };
 
 class unaliasCommand : public BuiltInCommand {
@@ -272,8 +283,6 @@ public:
 
     void execute() override;
 };
-
-
 
 
 #endif //SMASH_COMMAND_H_

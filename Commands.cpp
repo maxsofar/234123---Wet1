@@ -179,6 +179,84 @@ void JobsCommand::execute() {
     jobs->printJobsList();
 }
 
+
+
+aliasCommand::aliasCommand(const char *cmd_line) : BuiltInCommand(cmd_line)
+{}
+
+void aliasCommand::execute()
+{
+    SmallShell& smash = SmallShell::getInstance();
+    std::string cmd_str(cmd_line);
+
+    // Remove the 'alias' part from the command line
+    size_t pos = cmd_str.find("alias");
+    if (pos != std::string::npos) {
+        cmd_str.erase(0, pos + 5); // 5 is the length of 'alias'
+    }
+    if (cmd_str.find('=') == std::string::npos) { // No '=' found, list all aliases
+        for (const auto& alias : smash.getAliases()) {
+            std::cout << alias.first << "='" << alias.second << "'" << std::endl;
+        }
+    } else { // '=' found, add new alias
+        std::string name = _trim(cmd_str.substr(0, cmd_str.find('=')));
+        std::string command = _trim(cmd_str.substr(cmd_str.find('=') + 1));
+
+        // Remove the single quotes from the command
+        command.erase(std::remove(command.begin(), command.end(), '\''), command.end());
+
+        if (smash.isAlias(name)) {
+            std::cerr << "smash error: alias: " << name << " already exists or is a reserved command" << std::endl;
+        } else if (!isValidAlias(name)) {
+            std::cerr << "smash error: alias: Invalid alias format" << std::endl;
+        } else {
+            smash.addAlias(name, command);
+        }
+    }
+}
+
+bool aliasCommand::isValidAlias(const std::string& name) {
+    for (char c : name) {
+        if (!std::isalnum(c) && c != '_') {
+            return false;
+        }
+    }
+    return true;
+}
+
+const std::unordered_map<std::string, std::string>& SmallShell::getAliases() const
+{
+    return aliases;
+}
+
+unaliasCommand::unaliasCommand(const char *cmd_line) : BuiltInCommand(cmd_line)
+{}
+
+void unaliasCommand::execute()
+{
+    SmallShell& smash = SmallShell::getInstance();
+    std::string cmd_str(cmd_line);
+    cmd_str = _trim(cmd_str); // Remove leading and trailing whitespaces
+
+    char* args[COMMAND_MAX_ARGS];
+    int num_args = _parseCommandLine(cmd_str.c_str(), args); // Parse the command line
+
+    if (num_args <= 1) { // No arguments provided
+        std::cerr << "smash error: alias: Not enough arguments" << std::endl;
+        return;
+    }
+
+    for (int i = 1; i < num_args; ++i) {
+        std::string name(args[i]);
+        if (!smash.isAlias(name)) { // Alias does not exist
+            std::cerr << "smash error: alias: " << name << " alias does not exist" << std::endl;
+            break;
+        }
+        smash.removeAlias(name); // Remove the alias
+    }
+}
+
+
 //---------------------------------- Job List ----------------------------------
 
 JobsList::JobsList() : maxJobId(0)
@@ -205,7 +283,8 @@ void JobsList::addJob(std::shared_ptr<Command> cmd, bool isStopped)
 ExternalCommand::ExternalCommand(const char *cmd_line) : Command(cmd_line)
 {}
 
-void ExternalCommand::execute() {
+void ExternalCommand::execute()
+{
     // Parse the command line into arguments
     char* args[COMMAND_MAX_ARGS];
     int num_args = _parseCommandLine(cmd_line, args);
@@ -237,10 +316,13 @@ void ExternalCommand::execute() {
     }
 }
 
+//---------------------------------- Small Shell ----------------------------------
+
 /**
 * Creates and returns a pointer to Command class which matches the given command line (cmd_line)
 */
-std::shared_ptr<Command> SmallShell::CreateCommand(const char *cmd_line) {
+std::shared_ptr<Command> SmallShell::CreateCommand(const char *cmd_line)
+{
     string cmd_s = _trim(string(cmd_line));
     string firstWord = cmd_s.substr(0, cmd_s.find_first_of(" \n"));
 
@@ -254,15 +336,24 @@ std::shared_ptr<Command> SmallShell::CreateCommand(const char *cmd_line) {
         return std::make_shared<ChangeDirCommand>(cmd_line, &lastPwd);
     } else if (firstWord.compare("jobs") == 0) {
         return std::make_shared<JobsCommand>(cmd_line, &jobs);
+    } else if (firstWord.compare("alias") == 0) {
+        return std::make_shared<aliasCommand>(cmd_line);
+    } else if (firstWord.compare("unalias") == 0) {
+        return std::make_shared<unaliasCommand>(cmd_line);
     } else {
-         return std::make_shared<ExternalCommand>(cmd_line);
+        // Check if the first word is an alias
+        if (isAlias(firstWord)) {
+            // Replace the alias with the corresponding command
+            string aliasCommand = getAlias(firstWord);
+            cmd_s = cmd_s.replace(0, firstWord.length(), aliasCommand);
+        }
+        return std::make_shared<ExternalCommand>(cmd_s.c_str());
     }
-
-    return nullptr;
 }
 
 
-void SmallShell::executeCommand(const char *cmd_line) {
+void SmallShell::executeCommand(const char *cmd_line)
+{
     // TODO: Add your implementation here
     std::shared_ptr<Command> cmd = CreateCommand(cmd_line);
 
@@ -279,6 +370,39 @@ void SmallShell::executeCommand(const char *cmd_line) {
 
     cmd->execute();
     // Please note that you must fork smash process for some commands (e.g., external commands....)
+}
+
+const std::string& SmallShell::getPrompt() const
+{
+    return prompt;
+}
+
+void SmallShell::setPrompt(const std::string& newPrompt)
+{
+    prompt = newPrompt;
+}
+
+bool SmallShell::isAlias(const std::string& name)
+{
+    return aliases.count(name) > 0;
+}
+
+const std::string& SmallShell::getAlias(const std::string& name)
+{
+    return aliases.at(name);
+}
+
+void SmallShell::addAlias(const std::string& name, const std::string& command)
+{
+    aliases[name] = command;
+}
+
+void SmallShell::removeAlias(const std::string& name) {
+    // Check if the alias exists
+    if (aliases.find(name) != aliases.end()) {
+        // Remove the alias from the map
+        aliases.erase(name);
+    }
 }
 
 
