@@ -22,12 +22,6 @@ public:
     // TODO: Add your extra methods if needed
     const std::string& getCmdLine() const;
 
-    void printCmdLine() const {
-
-            std::cout << "Command line: " << cmd_line << std::endl;
-
-    }
-
 };
 
 class JobsList {
@@ -36,16 +30,25 @@ public:
         int jobId;
         std::shared_ptr<Command> cmd;
         bool isStopped;
+        pid_t pid;
         // TODO: Add your data members
     public:
-        JobEntry(int jobId, std::shared_ptr<Command> cmd, bool isStopped)
-                : jobId(jobId), cmd(cmd), isStopped(isStopped) {}
+        JobEntry(int jobId, std::shared_ptr<Command> cmd, bool isStopped, pid_t pid)
+                : jobId(jobId), cmd(cmd), isStopped(isStopped), pid(pid)  {}
         // TODO: Add your methods
+
         int getJobId() const {
             return jobId;
         }
+
         std::shared_ptr<Command> getCmd() const {
             return cmd;
+        }
+
+        bool isFinished() const {
+            int status;
+            pid_t result = waitpid(pid, &status, WNOHANG);
+            return result != 0;
         }
     };
 
@@ -53,14 +56,13 @@ private:
     std::list<JobEntry> jobs;
     int maxJobId;
 
+
 public:
     JobsList();
 
     ~JobsList();
 
-
-
-    void addJob(std::shared_ptr<Command> cmd, bool isStopped = false);
+    void addJob(std::shared_ptr<Command> cmd, bool isStopped, pid_t pid);
 
     void printJobsList();
 

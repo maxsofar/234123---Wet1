@@ -267,16 +267,21 @@ JobsList::~JobsList()
 {}
 
 void JobsList::printJobsList() {
-    for (const auto &job : jobs) {
-        std::cout << "[" << job.getJobId() << "] "
-                  << job.getCmd()->getCmdLine() << " &"
-                  << std::endl;
+    for (auto it = jobs.begin(); it != jobs.end(); /* no increment here */) {
+        if (it->isFinished()) {
+            it = jobs.erase(it);  // job is finished, remove it
+        } else {
+            std::cout << "[" << it->getJobId() << "] "
+                      << it->getCmd()->getCmdLine() << "&"
+                      << std::endl;
+            ++it;  // only increment iterator if job was not erased
+        }
     }
 }
 
-void JobsList::addJob(std::shared_ptr<Command> cmd, bool isStopped)
-{
-    jobs.push_back(JobEntry(++maxJobId, cmd, isStopped));
+
+void JobsList::addJob(std::shared_ptr<Command> cmd, bool isStopped , pid_t pid) {
+    jobs.push_back(JobEntry(maxJobId++, cmd, isStopped, pid));
 }
 
 //---------------------------------- External Command ----------------------------------
@@ -317,7 +322,9 @@ void ExternalCommand::execute()
         // This is the parent process
         if (isBackground) {
             // Don't wait for the child process to finish
-            // The job is already added in SmallShell::executeCommand
+            // Add the job to the jobs list
+            std::shared_ptr<Command> cmd = std::make_shared<ExternalCommand>(cmd_line);
+            SmallShell::getInstance().getJobs().addJob(cmd, false, pid);  // Pass the PID to addJob
         } else {
             // Wait for the child process to finish
             int status;
@@ -372,11 +379,6 @@ void SmallShell::executeCommand(const char *cmd_line)
 {
     // TODO: Add your implementation here
     std::shared_ptr<Command> cmd = CreateCommand(cmd_line);
-
-    if (_isBackgroundComamnd(cmd_line)) {
-        _removeBackgroundSign(const_cast<char*>(cmd_line));
-        jobs.addJob(cmd);
-    }
 
     //fake jobs
 //    std::shared_ptr<Command> cmd1 = std::make_shared<ChpromptCommand>("chprompt");
