@@ -10,9 +10,9 @@
 class Command {
 // TODO: Add your data members
 protected:
-    const char* cmd_line;
+    std::string cmd_line;
 public:
-    Command(const char *cmd_line);
+    Command(const std::string& cmd_line);
 
     virtual ~Command();
 
@@ -20,7 +20,14 @@ public:
     //virtual void prepare();
     //virtual void cleanup();
     // TODO: Add your extra methods if needed
-    const char* getCmdLine() const;
+    const std::string& getCmdLine() const;
+
+    void printCmdLine() const {
+
+            std::cout << "Command line: " << cmd_line << std::endl;
+
+    }
+
 };
 
 class JobsList {
@@ -111,20 +118,21 @@ public:
 
     const std::unordered_map<std::string, std::string>& getAliases() const;
 
+    JobsList& getJobs();
 };
 
 //------------------------------ Built in commands ------------------------------
 
 class BuiltInCommand : public Command {
 public:
-    BuiltInCommand(const char *cmd_line);
+    BuiltInCommand(const std::string& cmd_line);
 
     virtual ~BuiltInCommand() {}
 };
 
 class ChpromptCommand : public BuiltInCommand {
 public:
-    ChpromptCommand(const char *cmd_line);
+    ChpromptCommand(const std::string& cmd_line);
 
     virtual ~ChpromptCommand() {}
 
@@ -134,7 +142,7 @@ public:
 
 class ShowPidCommand : public BuiltInCommand {
 public:
-    ShowPidCommand(const char *cmd_line);
+    ShowPidCommand(const std::string& cmd_line);
 
     virtual ~ShowPidCommand() {}
 
@@ -144,7 +152,7 @@ public:
 
 class GetCurrDirCommand : public BuiltInCommand {
 public:
-    GetCurrDirCommand(const char *cmd_line);
+    GetCurrDirCommand(const std::string& cmd_line);
 
     virtual ~GetCurrDirCommand() {}
 
@@ -155,7 +163,7 @@ class ChangeDirCommand : public BuiltInCommand {
 // TODO: Add your data members
     char** lastPwd;
 public:
-    ChangeDirCommand(const char *cmd_line, char **plastPwd);
+    ChangeDirCommand(const std::string& cmd_line, char **plastPwd);
 
     virtual ~ChangeDirCommand() {}
 
@@ -168,7 +176,7 @@ class JobsCommand : public BuiltInCommand {
     // TODO: Add your data members
     JobsList* jobs;
 public:
-    JobsCommand(const char *cmd_line, JobsList *jobs);
+    JobsCommand(const std::string& cmd_line, JobsList *jobs);
 
     virtual ~JobsCommand() {}
 
@@ -187,7 +195,7 @@ public:
 
 class aliasCommand : public BuiltInCommand {
 public:
-    aliasCommand(const char *cmd_line);
+    aliasCommand(const std::string& cmd_line);
 
     virtual ~aliasCommand() {}
 
@@ -199,7 +207,7 @@ private:
 
 class unaliasCommand : public BuiltInCommand {
 public:
-    unaliasCommand(const char *cmd_line);
+    unaliasCommand(const std::string& cmd_line);
 
     virtual ~unaliasCommand() {}
 
@@ -210,7 +218,7 @@ public:
 
 class ExternalCommand : public Command {
 public:
-    ExternalCommand(const char *cmd_line);
+    ExternalCommand(const std::string& cmd_line);
 
     virtual ~ExternalCommand() {}
 
