@@ -2,6 +2,7 @@
 #define SMASH_COMMAND_H_
 
 #include <vector>
+#include <list>
 
 #define COMMAND_MAX_LENGTH (200)
 #define COMMAND_MAX_ARGS (20)
@@ -19,6 +20,55 @@ public:
     //virtual void prepare();
     //virtual void cleanup();
     // TODO: Add your extra methods if needed
+    const char* getCmdLine() const;
+};
+
+class JobsList {
+public:
+    class JobEntry {
+        int jobId;
+        std::shared_ptr<Command> cmd;
+        bool isStopped;
+        // TODO: Add your data members
+    public:
+        JobEntry(int jobId, std::shared_ptr<Command> cmd, bool isStopped)
+                : jobId(jobId), cmd(cmd), isStopped(isStopped) {}
+        // TODO: Add your methods
+        int getJobId() const {
+            return jobId;
+        }
+        std::shared_ptr<Command> getCmd() const {
+            return cmd;
+        }
+    };
+
+private:
+    std::list<JobEntry> jobs;
+    int maxJobId;
+
+public:
+    JobsList();
+
+    ~JobsList();
+
+
+
+    void addJob(std::shared_ptr<Command> cmd, bool isStopped = false);
+
+    void printJobsList();
+
+    void killAllJobs();
+
+    void removeFinishedJobs();
+
+    JobEntry *getJobById(int jobId);
+
+    void removeJobById(int jobId);
+
+    JobEntry *getLastJob(int *lastJobId);
+
+    JobEntry *getLastStoppedJob(int *jobId);
+    // TODO: Add extra methods or modify exisitng ones as needed
 };
 
 class SmallShell {
@@ -26,11 +76,11 @@ private:
     // TODO: Add your data members
     char* lastPwd;
     std::string prompt = "smash";
+    JobsList jobs;
     SmallShell();
 
-
 public:
-    Command *CreateCommand(const char *cmd_line);
+    std::shared_ptr<Command> CreateCommand(const char *cmd_line);
 
     SmallShell(SmallShell const &) = delete; // disable copy ctor
     void operator=(SmallShell const &) = delete; // disable = operator
@@ -104,6 +154,47 @@ public:
     void execute() override;
 };
 
+class JobsList;
+
+class JobsCommand : public BuiltInCommand {
+    // TODO: Add your data members
+    JobsList* jobs;
+public:
+    JobsCommand(const char *cmd_line, JobsList *jobs);
+
+    virtual ~JobsCommand() {}
+
+    void execute() override;
+};
+
+class ForegroundCommand : public BuiltInCommand {
+    // TODO: Add your data members
+public:
+    ForegroundCommand(const char *cmd_line, JobsList *jobs);
+
+    virtual ~ForegroundCommand() {}
+
+    void execute() override;
+};
+
+class aliasCommand : public BuiltInCommand {
+public:
+    aliasCommand(const char *cmd_line);
+
+    virtual ~aliasCommand() {}
+
+    void execute() override;
+};
+
+class unaliasCommand : public BuiltInCommand {
+public:
+    unaliasCommand(const char *cmd_line);
+
+    virtual ~unaliasCommand() {}
+
+    void execute() override;
+};
+
 //------------------------------ External Commands ------------------------------
 
 class ExternalCommand : public Command {
@@ -145,52 +236,11 @@ public:
     void execute() override;
 };
 
-class JobsList;
-
 class QuitCommand : public BuiltInCommand {
 // TODO: Add your data members public:
     QuitCommand(const char *cmd_line, JobsList *jobs);
 
     virtual ~QuitCommand() {}
-
-    void execute() override;
-};
-
-class JobsList {
-public:
-    class JobEntry {
-        // TODO: Add your data members
-    };
-    // TODO: Add your data members
-public:
-    JobsList();
-
-    ~JobsList();
-
-    void addJob(Command *cmd, bool isStopped = false);
-
-    void printJobsList();
-
-    void killAllJobs();
-
-    void removeFinishedJobs();
-
-    JobEntry *getJobById(int jobId);
-
-    void removeJobById(int jobId);
-
-    JobEntry *getLastJob(int *lastJobId);
-
-    JobEntry *getLastStoppedJob(int *jobId);
-    // TODO: Add extra methods or modify exisitng ones as needed
-};
-
-class JobsCommand : public BuiltInCommand {
-    // TODO: Add your data members
-public:
-    JobsCommand(const char *cmd_line, JobsList *jobs);
-
-    virtual ~JobsCommand() {}
 
     void execute() override;
 };
@@ -201,16 +251,6 @@ public:
     KillCommand(const char *cmd_line, JobsList *jobs);
 
     virtual ~KillCommand() {}
-
-    void execute() override;
-};
-
-class ForegroundCommand : public BuiltInCommand {
-    // TODO: Add your data members
-public:
-    ForegroundCommand(const char *cmd_line, JobsList *jobs);
-
-    virtual ~ForegroundCommand() {}
 
     void execute() override;
 };
@@ -233,23 +273,7 @@ public:
     void execute() override;
 };
 
-class aliasCommand : public BuiltInCommand {
-public:
-    aliasCommand(const char *cmd_line);
 
-    virtual ~aliasCommand() {}
-
-    void execute() override;
-};
-
-class unaliasCommand : public BuiltInCommand {
-public:
-    unaliasCommand(const char *cmd_line);
-
-    virtual ~unaliasCommand() {}
-
-    void execute() override;
-};
 
 
 #endif //SMASH_COMMAND_H_

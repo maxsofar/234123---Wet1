@@ -95,6 +95,13 @@ Command::~Command() {
     // Destructor implementation here
 }
 
+const char *Command::getCmdLine() const
+{
+    return cmd_line;
+}
+
+
+
 //---------------------------------- Built in commands ----------------------------------
 
 BuiltInCommand::BuiltInCommand(const char *cmd_line) : Command(cmd_line)
@@ -165,36 +172,112 @@ void ChangeDirCommand::execute() {
     *lastPwd = newPwd;
 }
 
+JobsCommand::JobsCommand(const char *cmd_line, JobsList* jobs) : BuiltInCommand(cmd_line), jobs(jobs)
+{}
 
+void JobsCommand::execute() {
+    jobs->printJobsList();
+}
+
+//---------------------------------- Job List ----------------------------------
+
+JobsList::JobsList() : maxJobId(0)
+{}
+
+JobsList::~JobsList()
+{}
+
+void JobsList::printJobsList() {
+    for (const auto &job : jobs) {
+        std::cout << "[" << job.getJobId() << "] "
+                  << job.getCmd()->getCmdLine() << " &"
+                  << std::endl;
+    }
+}
+
+void JobsList::addJob(std::shared_ptr<Command> cmd, bool isStopped)
+{
+    jobs.push_back(JobEntry(++maxJobId, cmd, isStopped));
+}
+
+//---------------------------------- External Command ----------------------------------
+
+ExternalCommand::ExternalCommand(const char *cmd_line) : Command(cmd_line)
+{}
+
+void ExternalCommand::execute() {
+    // Parse the command line into arguments
+    char* args[COMMAND_MAX_ARGS];
+    int num_args = _parseCommandLine(cmd_line, args);
+
+    // Fork a new process
+    pid_t pid = fork();
+
+    if (pid < 0) {
+        // Fork failed
+        std::cerr << "Fork failed" << std::endl;
+        return;
+    } else if (pid == 0) {
+        // This is the child process
+        // Execute the external command
+        if (execvp(args[0], args) < 0) {
+            std::cerr << "Exec failed" << std::endl;
+        }
+        exit(0);
+    } else {
+        // This is the parent process
+        // Wait for the child process to finish
+        int status;
+        waitpid(pid, &status, 0);
+    }
+
+    // Free the memory allocated for the arguments
+    for (int i = 0; i < num_args; ++i) {
+        free(args[i]);
+    }
+}
 
 /**
 * Creates and returns a pointer to Command class which matches the given command line (cmd_line)
 */
-Command *SmallShell::CreateCommand(const char *cmd_line) {
-
-  string cmd_s = _trim(string(cmd_line));
-  string firstWord = cmd_s.substr(0, cmd_s.find_first_of(" \n"));
+std::shared_ptr<Command> SmallShell::CreateCommand(const char *cmd_line) {
+    string cmd_s = _trim(string(cmd_line));
+    string firstWord = cmd_s.substr(0, cmd_s.find_first_of(" \n"));
 
     if (firstWord.compare("chprompt") == 0) {
-        return new ChpromptCommand(cmd_line);
+        return std::make_shared<ChpromptCommand>(cmd_line);
     } else if (firstWord.compare("showpid") == 0) {
-        return new ShowPidCommand(cmd_line);
+        return std::make_shared<ShowPidCommand>(cmd_line);
     } else if (firstWord.compare("pwd") == 0) {
-        return new GetCurrDirCommand(cmd_line);
+        return std::make_shared<GetCurrDirCommand>(cmd_line);
     } else if (firstWord.compare("cd") == 0) {
-        return new ChangeDirCommand(cmd_line, &lastPwd);
+        return std::make_shared<ChangeDirCommand>(cmd_line, &lastPwd);
+    } else if (firstWord.compare("jobs") == 0) {
+        return std::make_shared<JobsCommand>(cmd_line, &jobs);
     } else {
-//        return new ExternalCommand(cmd_line);
+         return std::make_shared<ExternalCommand>(cmd_line);
     }
 
     return nullptr;
 }
 
+
 void SmallShell::executeCommand(const char *cmd_line) {
     // TODO: Add your implementation here
-    // for example:
-     Command* cmd = CreateCommand(cmd_line);
-     cmd->execute();
+    std::shared_ptr<Command> cmd = CreateCommand(cmd_line);
+
+    //fake jobs
+//    std::shared_ptr<Command> cmd1 = std::make_shared<ChpromptCommand>("chprompt");
+//    jobs.addJob(cmd1, false);
+//
+//    std::shared_ptr<Command> cmd2 = std::make_shared<ShowPidCommand>("showpid");
+//    jobs.addJob(cmd2, false);
+//
+//    std::shared_ptr<Command> cmd3 = std::make_shared<GetCurrDirCommand>("pwd");
+//    jobs.addJob(cmd3, false);
+
+
+    cmd->execute();
     // Please note that you must fork smash process for some commands (e.g., external commands....)
 }
 
