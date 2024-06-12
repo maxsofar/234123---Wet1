@@ -5,6 +5,7 @@
 #include <sstream>
 #include <sys/wait.h>
 #include <iomanip>
+#include <signal.h>
 #include "Commands.h"
 
 using namespace std;
@@ -107,9 +108,9 @@ const string& Command::getCmdLine() const
 BuiltInCommand::BuiltInCommand(const string& cmd_line) : Command(cmd_line)
 {}
 
+
 ChpromptCommand::ChpromptCommand(const string& cmd_line) : BuiltInCommand(cmd_line)
 {}
-
 void ChpromptCommand::execute() {
     SmallShell& shell = SmallShell::getInstance(); // Get the existing instance (singleton)
     string cmd_s = string(cmd_line);
@@ -118,16 +119,16 @@ void ChpromptCommand::execute() {
     shell.setPrompt(newPrompt); // Change the prompt of the existing instance
 }
 
+
 ShowPidCommand::ShowPidCommand(const string& cmd_line) : BuiltInCommand(cmd_line)
 {}
-
 void ShowPidCommand::execute() {
     cout << "smash pid is " << getpid() << endl;
 }
 
+
 GetCurrDirCommand::GetCurrDirCommand(const string& cmd_line) : BuiltInCommand(cmd_line)
 {}
-
 void GetCurrDirCommand::execute() {
     char buf[PATH_MAX];
     if (getcwd(buf, PATH_MAX) == NULL) {
@@ -137,9 +138,9 @@ void GetCurrDirCommand::execute() {
     }
 }
 
+
 ChangeDirCommand::ChangeDirCommand(const string& cmd_line, char **plastPwd) : BuiltInCommand(cmd_line), lastPwd(plastPwd)
 {}
-
 void ChangeDirCommand::execute() {
     char* args[COMMAND_MAX_ARGS];
     int num_args = _parseCommandLine(cmd_line.c_str(), args);
@@ -172,9 +173,9 @@ void ChangeDirCommand::execute() {
     *lastPwd = newPwd;
 }
 
+
 JobsCommand::JobsCommand(const string& cmd_line, JobsList* jobs) : BuiltInCommand(cmd_line), jobs(jobs)
 {}
-
 void JobsCommand::execute() {
     jobs->printJobsList();
 }
@@ -183,7 +184,6 @@ void JobsCommand::execute() {
 
 aliasCommand::aliasCommand(const string& cmd_line) : BuiltInCommand(cmd_line)
 {}
-
 void aliasCommand::execute()
 {
     SmallShell& smash = SmallShell::getInstance();
@@ -213,7 +213,6 @@ void aliasCommand::execute()
         }
     }
 }
-
 bool aliasCommand::isValidAlias(const string& name) {
     for (char c : name) {
         if (!std::isalnum(c) && c != '_') {
@@ -222,15 +221,14 @@ bool aliasCommand::isValidAlias(const string& name) {
     }
     return true;
 }
-
 const std::unordered_map<string, string>& SmallShell::getAliases() const
 {
     return aliases;
 }
 
+
 unaliasCommand::unaliasCommand(const std::string& cmd_line) : BuiltInCommand(cmd_line)
 {}
-
 void unaliasCommand::execute()
 {
     SmallShell& smash = SmallShell::getInstance();
@@ -254,6 +252,22 @@ void unaliasCommand::execute()
         free(args[i]); // Don't forget to free the memory
     }
 }
+
+QuitCommand::QuitCommand(const string& cmd_line, JobsList* jobs) : BuiltInCommand(cmd_line), jobs(jobs)
+{}
+void QuitCommand::execute() {
+    char* args[COMMAND_MAX_ARGS];
+    int numArgs = _parseCommandLine(cmd_line.c_str(), args);
+    if (numArgs > 1 && strcmp(args[1], "kill") == 0) {
+        SmallShell::getInstance().getJobs().killAllJobs();
+    }
+    // Don't forget to free the memory allocated by _parseCommandLine
+    for (int i = 0; i < numArgs; i++) {
+        free(args[i]);
+    }
+    exit(0);
+}
+
 
 
 
@@ -279,10 +293,20 @@ void JobsList::printJobsList() {
     }
 }
 
-
 void JobsList::addJob(std::shared_ptr<Command> cmd, bool isStopped , pid_t pid) {
     jobs.push_back(JobEntry(maxJobId++, cmd, isStopped, pid));
 }
+
+void JobsList::killAllJobs() {
+    std::cout << "smash: sending SIGKILL signal to " << jobs.size() << " jobs:" << std::endl;
+    for (auto &job : jobs) {
+        if (!job.isFinished()) {
+            std::cout << job.getPid() << ": " << job.getCmdLine() << std::endl;
+            kill(job.getPid(), SIGKILL);
+        }
+    }
+}
+
 
 //---------------------------------- External Command ----------------------------------
 
@@ -339,7 +363,6 @@ void ExternalCommand::execute()
 }
 
 
-
 //---------------------------------- Small Shell ----------------------------------
 
 /**
@@ -364,6 +387,8 @@ std::shared_ptr<Command> SmallShell::CreateCommand(const char *cmd_line)
         return std::make_shared<aliasCommand>(cmd_line);
     } else if (firstWord.compare("unalias") == 0) {
         return std::make_shared<unaliasCommand>(cmd_line);
+    } else if (firstWord.compare("quit") == 0) {
+        return std::make_shared<QuitCommand>(cmd_line, &jobs);
     } else {
         // Check if the first word is an alias
         if (isAlias(firstWord)) {

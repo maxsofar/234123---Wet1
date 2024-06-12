@@ -41,6 +41,14 @@ public:
             return jobId;
         }
 
+        pid_t getPid() const {
+            return pid;
+        }
+
+        std::string getCmdLine() const {
+            return cmd->getCmdLine();
+        }
+
         std::shared_ptr<Command> getCmd() const {
             return cmd;
         }
@@ -55,8 +63,6 @@ public:
 private:
     std::list<JobEntry> jobs;
     int maxJobId;
-
-
 public:
     JobsList();
 
@@ -172,8 +178,6 @@ public:
     void execute() override;
 };
 
-class JobsList;
-
 class JobsCommand : public BuiltInCommand {
     // TODO: Add your data members
     JobsList* jobs;
@@ -191,6 +195,27 @@ public:
     ForegroundCommand(const char *cmd_line, JobsList *jobs);
 
     virtual ~ForegroundCommand() {}
+
+    void execute() override;
+};
+
+class QuitCommand : public BuiltInCommand {
+// TODO: Add your data members
+    JobsList* jobs;
+public:
+    QuitCommand(const std::string& cmd_line, JobsList *jobs);
+
+    virtual ~QuitCommand() {}
+
+    void execute() override;
+};
+
+class KillCommand : public BuiltInCommand {
+    // TODO: Add your data members
+public:
+    KillCommand(const char *cmd_line, JobsList *jobs);
+
+    virtual ~KillCommand() {}
 
     void execute() override;
 };
@@ -257,24 +282,9 @@ public:
     void execute() override;
 };
 
-class QuitCommand : public BuiltInCommand {
-// TODO: Add your data members public:
-    QuitCommand(const char *cmd_line, JobsList *jobs);
 
-    virtual ~QuitCommand() {}
 
-    void execute() override;
-};
 
-class KillCommand : public BuiltInCommand {
-    // TODO: Add your data members
-public:
-    KillCommand(const char *cmd_line, JobsList *jobs);
-
-    virtual ~KillCommand() {}
-
-    void execute() override;
-};
 
 class ListDirCommand : public BuiltInCommand {
 public:
