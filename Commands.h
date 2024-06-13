@@ -191,6 +191,7 @@ public:
 
 class ForegroundCommand : public BuiltInCommand {
     // TODO: Add your data members
+    JobsList* jobs;
 public:
     ForegroundCommand(const char *cmd_line, JobsList *jobs);
 
@@ -212,8 +213,9 @@ public:
 
 class KillCommand : public BuiltInCommand {
     // TODO: Add your data members
+    JobsList* jobs;
 public:
-    KillCommand(const char *cmd_line, JobsList *jobs);
+    KillCommand(const std::string&, JobsList *jobs);
 
     virtual ~KillCommand() {}
 
@@ -281,10 +283,6 @@ public:
 
     void execute() override;
 };
-
-
-
-
 
 class ListDirCommand : public BuiltInCommand {
 public:

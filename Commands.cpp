@@ -180,6 +180,49 @@ void JobsCommand::execute() {
     jobs->printJobsList();
 }
 
+ForegroundCommand::ForegroundCommand(const char *cmd_line, JobsList *jobs) : BuiltInCommand(cmd_line), jobs(jobs)
+{}
+void ForegroundCommand::execute() {
+    char* args[COMMAND_MAX_ARGS];
+    _parseCommandLine(cmd_line.c_str(), args);
+
+    int jobId = -1;
+    if (args[1] != nullptr) {
+        // If there is a second argument, it should be the job id
+        jobId = std::stoi(args[1]);
+    }
+
+    JobsList::JobEntry *job;
+    if (jobId == -1) {
+        // If no job id was specified, get the job with the maximal job id
+        int lastJobId;
+        job = jobs->getLastJob(&lastJobId);
+        if (job == nullptr) {
+            std::cerr << "smash error: fg: no jobs currently running" << std::endl;
+            return;
+        }
+        jobId = lastJobId;
+    } else {
+        // If a job id was specified, get the job by its id
+        job = jobs->getJobById(jobId);
+        if (job == nullptr) {
+            std::cerr << "smash error: fg: job-id " << jobId << " does not exist" << std::endl;
+            return;
+        }
+    }
+
+    // Print the command line of the job along with its PID
+    std::cout << job->getCmdLine() << "& " << job->getPid() << std::endl;
+
+    // Bring the process to the foreground by waiting for it
+    int status;
+    if (waitpid(job->getPid(), &status, WCONTINUED | WUNTRACED) == -1) {
+        perror("smash error: waitpid failed");
+    }
+
+    // Remove the job from the jobs list
+    jobs->removeJobById(jobId);
+}
 
 
 aliasCommand::aliasCommand(const string& cmd_line) : BuiltInCommand(cmd_line)
@@ -227,7 +270,7 @@ const std::unordered_map<string, string>& SmallShell::getAliases() const
 }
 
 
-unaliasCommand::unaliasCommand(const std::string& cmd_line) : BuiltInCommand(cmd_line)
+unaliasCommand::unaliasCommand(const string& cmd_line) : BuiltInCommand(cmd_line)
 {}
 void unaliasCommand::execute()
 {
@@ -268,34 +311,65 @@ void QuitCommand::execute() {
     exit(0);
 }
 
+KillCommand::KillCommand(const string& cmd_line, JobsList* jobs) : BuiltInCommand(cmd_line), jobs(jobs)
+{}
+void KillCommand::execute()
+{
+    char *args[COMMAND_MAX_ARGS];
+    int num_args = _parseCommandLine(cmd_line.c_str(), args);
 
+    if (num_args != 3 || args[1][0] != '-') {
+        std::cerr << "smash error: kill: invalid arguments" << std::endl;
+        return;
+    }
 
+    int signum = atoi(args[1] + 1); // skip the '-'
+    int jobid = atoi(args[2]);
 
+    JobsList::JobEntry *job = jobs->getJobById(jobid);
+    if (!job) {
+        std::cerr << "smash error: kill: job-id " << jobid << " does not exist" << std::endl;
+        return;
+    }
+
+    if (kill(job->getPid(), signum) == -1) {
+        perror("smash error: kill failed");
+        return;
+    }
+
+    std::cout << "signal number " << signum << " was sent to pid " << job->getPid() << std::endl;
+    jobs->removeJobById(jobid);
+
+    // Don't forget to free the memory allocated by _parseCommandLine
+    for (int i = 0; i < num_args; i++) {
+        free(args[i]);
+    }
+}
 
 //---------------------------------- Job List ----------------------------------
 
-JobsList::JobsList() : maxJobId(0)
+JobsList::JobsList() : maxJobId(1)
 {}
 
 JobsList::~JobsList()
 {}
 
 void JobsList::printJobsList() {
-    for (auto it = jobs.begin(); it != jobs.end(); /* no increment here */) {
-        if (it->isFinished()) {
-            it = jobs.erase(it);  // job is finished, remove it
-        } else {
-            std::cout << "[" << it->getJobId() << "] "
-                      << it->getCmd()->getCmdLine() << "&"
-                      << std::endl;
-            ++it;  // only increment iterator if job was not erased
-        }
+    removeFinishedJobs();
+    for (const auto& job : jobs) {
+        std::cout << "[" << job.getJobId() << "] "
+                  << job.getCmd()->getCmdLine() << "&"
+                  << std::endl;
     }
 }
 
-void JobsList::addJob(std::shared_ptr<Command> cmd, bool isStopped , pid_t pid) {
-    jobs.push_back(JobEntry(maxJobId++, cmd, isStopped, pid));
+void JobsList::addJob(std::shared_ptr<Command> cmd, bool isStopped, pid_t pid) {
+    //TODO: check if jobID should be reused
+    int jobId = jobs.empty() ? 1 : maxJobId + 1;
+    jobs.push_back(JobEntry(jobId, cmd, isStopped, pid));
+    maxJobId = jobId;  // Update the maximum job ID
 }
+
 
 void JobsList::killAllJobs() {
     std::cout << "smash: sending SIGKILL signal to " << jobs.size() << " jobs:" << std::endl;
@@ -307,13 +381,68 @@ void JobsList::killAllJobs() {
     }
 }
 
+void JobsList::removeFinishedJobs() {
+    for (auto it = jobs.begin(); it != jobs.end(); ) {
+        if (it->isFinished()) {
+            it = jobs.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+JobsList::JobEntry* JobsList::getJobById(int jobId) {
+    for (auto& job : jobs) {
+        if (job.getJobId() == jobId) {
+            return &job;
+        }
+    }
+    return nullptr;  // No job with the given id was found
+}
+
+void JobsList::removeJobById(int jobId)
+{
+    for (auto it = jobs.begin(); it != jobs.end(); ++it) {
+        if (it->getJobId() == jobId) {
+            jobs.erase(it);
+            return;
+        }
+    }
+}
+
+JobsList::JobEntry *JobsList::getLastJob(int *lastJobId) {
+    if (jobs.empty()) {
+        // If the jobs list is empty, return nullptr
+        return nullptr;
+    }
+
+    // Initialize the last job with the first job in the list
+    JobEntry *lastJob = &jobs.front();
+
+    // Iterate over the jobs list to find the job with the maximal job id
+    for (auto &job : jobs) {
+        if (job.getJobId() > maxJobId) {
+            lastJob = &job;
+            maxJobId = job.getJobId();
+        }
+    }
+
+    // If the lastJobId pointer is not null, assign the maximal job id to it
+    if (lastJobId != nullptr) {
+        *lastJobId = maxJobId;
+    }
+
+    return lastJob;
+}
+
+
 
 //---------------------------------- External Command ----------------------------------
 
 ExternalCommand::ExternalCommand(const string& cmd_line) : Command(cmd_line)
 {}
 
-void ExternalCommand::execute()
+/*void ExternalCommand::execute()
 {
     // Parse the command line into arguments
     char* args[COMMAND_MAX_ARGS];
@@ -360,7 +489,23 @@ void ExternalCommand::execute()
     for (int i = 0; i < num_args; ++i) {
         free(args[i]);
     }
+}*/
+void ExternalCommand::execute() {
+    // Parse the command line into arguments
+    char* args[COMMAND_MAX_ARGS];
+    int num_args = _parseCommandLine(cmd_line.c_str(), args);
+
+    // Execute the external command
+    if (execvp(args[0], args) < 0) {
+        std::cerr << "Exec failed" << std::endl;
+    }
+
+    // Free the memory allocated for the arguments
+    for (int i = 0; i < num_args; ++i) {
+        free(args[i]);
+    }
 }
+
 
 
 //---------------------------------- Small Shell ----------------------------------
@@ -389,6 +534,10 @@ std::shared_ptr<Command> SmallShell::CreateCommand(const char *cmd_line)
         return std::make_shared<unaliasCommand>(cmd_line);
     } else if (firstWord.compare("quit") == 0) {
         return std::make_shared<QuitCommand>(cmd_line, &jobs);
+    } else if (firstWord.compare("kill") == 0) {
+        return std::make_shared<KillCommand>(cmd_line, &jobs);
+    } else if (firstWord.compare("fg") == 0) {
+        return std::make_shared<ForegroundCommand>(cmd_line, &jobs);
     } else {
         // Check if the first word is an alias
         if (isAlias(firstWord)) {
@@ -400,7 +549,50 @@ std::shared_ptr<Command> SmallShell::CreateCommand(const char *cmd_line)
     }
 }
 
-void SmallShell::executeCommand(const char *cmd_line)
+void SmallShell::executeCommand(const char *cmd_line) {
+    bool isBackground = _isBackgroundComamnd(cmd_line);
+    if (isBackground) {
+        // Remove the '&' argument
+        _removeBackgroundSign(const_cast<char*>(cmd_line));
+    }
+    std::shared_ptr<Command> cmd = CreateCommand(cmd_line);
+
+    // Check if the command is an external command
+    if (dynamic_cast<ExternalCommand*>(cmd.get())) {
+        // Fork a new process
+        pid_t pid = fork();
+
+        if (pid < 0) {
+            // Fork failed
+            std::cerr << "Fork failed" << std::endl;
+            return;
+        } else if (pid == 0) {
+            // This is the child process
+            // Call setpgrp to create a new process group
+            setpgrp();
+            // Execute the command
+            cmd->execute();
+            exit(0);
+        } else {
+            // This is the parent process
+            if (isBackground) {
+                // Don't wait for the child process to finish
+                // Add the job to the jobs list
+                jobs.addJob(cmd, false, pid);
+            } else {
+                // Wait for the child process to finish
+                int status;
+                waitpid(pid, &status, 0);
+            }
+        }
+    } else {
+        // For built-in commands, just execute the command
+        cmd->execute();
+    }
+}
+
+
+/*void SmallShell::executeCommand(const char *cmd_line)
 {
     // TODO: Add your implementation here
     std::shared_ptr<Command> cmd = CreateCommand(cmd_line);
@@ -418,7 +610,7 @@ void SmallShell::executeCommand(const char *cmd_line)
 
     cmd->execute();
     // Please note that you must fork smash process for some commands (e.g., external commands....)
-}
+}*/
 
 const string& SmallShell::getPrompt() const
 {
@@ -457,5 +649,4 @@ JobsList& SmallShell::getJobs()
 {
     return jobs;
 }
-
 
