@@ -87,7 +87,13 @@ private:
     std::string prompt = "smash";
     JobsList jobs;
     std::unordered_map<std::string, std::string> aliases;
+
+
     SmallShell();
+    void handleBackgroundCommand(char* &cmd_line_copy, const char *cmd_line);
+    std::shared_ptr<Command> createCommandAndRemoveJobs(char* cmd_line_copy);
+    void executeExternalCommand(std::shared_ptr<Command> cmd, bool isBackground);
+
 
 public:
     std::shared_ptr<Command> CreateCommand(const char *cmd_line);
