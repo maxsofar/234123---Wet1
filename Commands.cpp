@@ -75,8 +75,6 @@ void _removeBackgroundSign(char *cmd_line) {
     cmd_line[str.find_last_not_of(WHITESPACE, idx) + 1] = 0;
 }
 
-// TODO: Add your implementation for classes in Commands.h 
-
 SmallShell::SmallShell(): lastPwd(nullptr) {
 // TODO: add your implementation
 }
@@ -108,15 +106,19 @@ const string& Command::getCmdLine() const
 BuiltInCommand::BuiltInCommand(const string& cmd_line) : Command(cmd_line)
 {}
 
-
 ChpromptCommand::ChpromptCommand(const string& cmd_line) : BuiltInCommand(cmd_line)
 {}
 void ChpromptCommand::execute() {
     SmallShell& shell = SmallShell::getInstance(); // Get the existing instance (singleton)
-    string cmd_s = string(cmd_line);
-    size_t pos = cmd_s.find_first_of(" \n");
-    string newPrompt = (pos == string::npos) ? "smash" : cmd_s.substr(pos+1);
+    char* args[COMMAND_MAX_LENGTH];
+    _parseCommandLine(cmd_line.c_str(), args);
+    string newPrompt = args[1] ? args[1] : "smash";
     shell.setPrompt(newPrompt); // Change the prompt of the existing instance
+
+    // Don't forget to free the memory allocated by _parseCommandLine
+    for (int i = 0; args[i]; i++) {
+        free(args[i]);
+    }
 }
 
 
@@ -180,16 +182,33 @@ void JobsCommand::execute() {
     jobs->printJobsList();
 }
 
+
 ForegroundCommand::ForegroundCommand(const char *cmd_line, JobsList *jobs) : BuiltInCommand(cmd_line), jobs(jobs)
 {}
 void ForegroundCommand::execute() {
     char* args[COMMAND_MAX_ARGS];
-    _parseCommandLine(cmd_line.c_str(), args);
+    int numArgs = _parseCommandLine(cmd_line.c_str(), args);
+
+    // Check if the number of arguments is valid
+    if (numArgs > 2) {
+        std::cout << "smash error: fg: invalid arguments" << std::endl;
+        return;
+    }
 
     int jobId = -1;
     if (args[1] != nullptr) {
         // If there is a second argument, it should be the job id
-        jobId = std::stoi(args[1]);
+        std::string arg = args[1];
+        if (std::all_of(arg.begin(), arg.end(), ::isdigit)) {
+            jobId = std::stoi(arg);
+            if (jobId <= 0) {
+                std::cout << "smash error: fg: invalid arguments" << std::endl;
+                return;
+            }
+        } else {
+            std::cout << "smash error: fg: invalid arguments" << std::endl;
+            return;
+        }
     }
 
     JobsList::JobEntry *job;
@@ -198,7 +217,7 @@ void ForegroundCommand::execute() {
         int lastJobId;
         job = jobs->getLastJob(&lastJobId);
         if (job == nullptr) {
-            std::cerr << "smash error: fg: no jobs currently running" << std::endl;
+            std::cout << "smash error: fg: jobs list is empty" << std::endl;
             return;
         }
         jobId = lastJobId;
@@ -206,7 +225,7 @@ void ForegroundCommand::execute() {
         // If a job id was specified, get the job by its id
         job = jobs->getJobById(jobId);
         if (job == nullptr) {
-            std::cerr << "smash error: fg: job-id " << jobId << " does not exist" << std::endl;
+            std::cout << "smash error: fg: job-id " << jobId << " does not exist" << std::endl;
             return;
         }
     }
@@ -222,6 +241,63 @@ void ForegroundCommand::execute() {
 
     // Remove the job from the jobs list
     jobs->removeJobById(jobId);
+}
+
+QuitCommand::QuitCommand(const string& cmd_line, JobsList* jobs) : BuiltInCommand(cmd_line), jobs(jobs)
+{}
+void QuitCommand::execute() {
+    char* args[COMMAND_MAX_ARGS];
+    int numArgs = _parseCommandLine(cmd_line.c_str(), args);
+    if (numArgs > 1 && strcmp(args[1], "kill") == 0) {
+        SmallShell::getInstance().getJobs().killAllJobs();
+    }
+    // Don't forget to free the memory allocated by _parseCommandLine
+    for (int i = 0; i < numArgs; i++) {
+        free(args[i]);
+    }
+    exit(0);
+}
+
+KillCommand::KillCommand(const string& cmd_line, JobsList* jobs) : BuiltInCommand(cmd_line), jobs(jobs)
+{}
+void KillCommand::execute()
+{
+    char *args[COMMAND_MAX_ARGS];
+    int num_args = _parseCommandLine(cmd_line.c_str(), args);
+
+    if (num_args != 3 || args[1][0] != '-') {
+        std::cout << "smash error: kill: invalid arguments" << std::endl;
+        return;
+    }
+
+    int signum = atoi(args[1] + 1); // skip the '-'
+    int jobid = atoi(args[2]);
+
+    // Check if signum and jobid are positive
+    if (signum <= 0 || jobid <= 0) {
+        std::cout << "smash error: kill: invalid arguments" << std::endl;
+        return;
+    }
+
+
+    JobsList::JobEntry *job = jobs->getJobById(jobid);
+    if (!job) {
+        std::cout << "smash error: kill: job-id " << jobid << " does not exist" << std::endl;
+        return;
+    }
+
+    if (kill(job->getPid(), signum) == -1) {
+        perror("smash error: kill failed");
+        return;
+    }
+
+    std::cout << "signal number " << signum << " was sent to pid " << job->getPid() << std::endl;
+    jobs->removeJobById(jobid);
+
+    // Don't forget to free the memory allocated by _parseCommandLine
+    for (int i = 0; i < num_args; i++) {
+        free(args[i]);
+    }
 }
 
 
@@ -248,9 +324,9 @@ void aliasCommand::execute()
         command.erase(std::remove(command.begin(), command.end(), '\''), command.end());
 
         if (smash.isAlias(name)) {
-            std::cerr << "smash error: alias: " << name << " already exists or is a reserved command" << std::endl;
+            std::cout << "smash error: alias: " << name << " already exists or is a reserved command" << std::endl;
         } else if (!isValidAlias(name)) {
-            std::cerr << "smash error: alias: Invalid alias format" << std::endl;
+            std::cout << "smash error: alias: Invalid alias format" << std::endl;
         } else {
             smash.addAlias(name, command);
         }
@@ -281,14 +357,14 @@ void unaliasCommand::execute()
     int num_args = _parseCommandLine(cmd_str.c_str(), args); // Parse the command line
 
     if (num_args <= 1) { // No arguments provided
-        std::cerr << "smash error: alias: Not enough arguments" << std::endl;
+        std::cout << "smash error: alias: Not enough arguments" << std::endl;
         return;
     }
 
     for (int i = 1; i < num_args; ++i) {
         string name(args[i]);
         if (!smash.isAlias(name)) { // Alias does not exist
-            std::cerr << "smash error: alias: " << name << " alias does not exist" << std::endl;
+            std::cout << "smash error: alias: " << name << " alias does not exist" << std::endl;
             break;
         }
         smash.removeAlias(name); // Remove the alias
@@ -296,55 +372,6 @@ void unaliasCommand::execute()
     }
 }
 
-QuitCommand::QuitCommand(const string& cmd_line, JobsList* jobs) : BuiltInCommand(cmd_line), jobs(jobs)
-{}
-void QuitCommand::execute() {
-    char* args[COMMAND_MAX_ARGS];
-    int numArgs = _parseCommandLine(cmd_line.c_str(), args);
-    if (numArgs > 1 && strcmp(args[1], "kill") == 0) {
-        SmallShell::getInstance().getJobs().killAllJobs();
-    }
-    // Don't forget to free the memory allocated by _parseCommandLine
-    for (int i = 0; i < numArgs; i++) {
-        free(args[i]);
-    }
-    exit(0);
-}
-
-KillCommand::KillCommand(const string& cmd_line, JobsList* jobs) : BuiltInCommand(cmd_line), jobs(jobs)
-{}
-void KillCommand::execute()
-{
-    char *args[COMMAND_MAX_ARGS];
-    int num_args = _parseCommandLine(cmd_line.c_str(), args);
-
-    if (num_args != 3 || args[1][0] != '-') {
-        std::cerr << "smash error: kill: invalid arguments" << std::endl;
-        return;
-    }
-
-    int signum = atoi(args[1] + 1); // skip the '-'
-    int jobid = atoi(args[2]);
-
-    JobsList::JobEntry *job = jobs->getJobById(jobid);
-    if (!job) {
-        std::cerr << "smash error: kill: job-id " << jobid << " does not exist" << std::endl;
-        return;
-    }
-
-    if (kill(job->getPid(), signum) == -1) {
-        perror("smash error: kill failed");
-        return;
-    }
-
-    std::cout << "signal number " << signum << " was sent to pid " << job->getPid() << std::endl;
-    jobs->removeJobById(jobid);
-
-    // Don't forget to free the memory allocated by _parseCommandLine
-    for (int i = 0; i < num_args; i++) {
-        free(args[i]);
-    }
-}
 
 //---------------------------------- Job List ----------------------------------
 
@@ -365,11 +392,13 @@ void JobsList::printJobsList() {
 
 void JobsList::addJob(std::shared_ptr<Command> cmd, bool isStopped, pid_t pid) {
     //TODO: check if jobID should be reused
+
+    // Remove finished jobs from the jobs list
+    removeFinishedJobs();
     int jobId = jobs.empty() ? 1 : maxJobId + 1;
     jobs.push_back(JobEntry(jobId, cmd, isStopped, pid));
     maxJobId = jobId;  // Update the maximum job ID
 }
-
 
 void JobsList::killAllJobs() {
     std::cout << "smash: sending SIGKILL signal to " << jobs.size() << " jobs:" << std::endl;
@@ -416,25 +445,16 @@ JobsList::JobEntry *JobsList::getLastJob(int *lastJobId) {
         return nullptr;
     }
 
-    // Initialize the last job with the first job in the list
-    JobEntry *lastJob = &jobs.front();
+    // Get the last job in the list
+    JobEntry *lastJob = &jobs.back();
 
-    // Iterate over the jobs list to find the job with the maximal job id
-    for (auto &job : jobs) {
-        if (job.getJobId() > maxJobId) {
-            lastJob = &job;
-            maxJobId = job.getJobId();
-        }
-    }
-
-    // If the lastJobId pointer is not null, assign the maximal job id to it
+    // If the lastJobId pointer is not null, assign the job id to it
     if (lastJobId != nullptr) {
-        *lastJobId = maxJobId;
+        *lastJobId = lastJob->getJobId();
     }
 
     return lastJob;
 }
-
 
 
 //---------------------------------- External Command ----------------------------------
@@ -442,54 +462,6 @@ JobsList::JobEntry *JobsList::getLastJob(int *lastJobId) {
 ExternalCommand::ExternalCommand(const string& cmd_line) : Command(cmd_line)
 {}
 
-/*void ExternalCommand::execute()
-{
-    // Parse the command line into arguments
-    char* args[COMMAND_MAX_ARGS];
-    int num_args = _parseCommandLine(cmd_line.c_str(), args);
-
-    // Check if the command should be run in the background
-    bool isBackground = _isBackgroundComamnd(cmd_line.c_str());
-    if (isBackground) {
-        // Remove the '&' argument
-        _removeBackgroundSign(const_cast<char*>(cmd_line.c_str()));
-        // Re-parse the command line into arguments
-        num_args = _parseCommandLine(cmd_line.c_str(), args);
-    }
-
-    // Fork a new process
-    pid_t pid = fork();
-
-    if (pid < 0) {
-        // Fork failed
-        std::cerr << "Fork failed" << std::endl;
-        return;
-    } else if (pid == 0) {
-        // This is the child process
-        // Execute the external command
-        if (execvp(args[0], args) < 0) {
-            std::cerr << "Exec failed" << std::endl;
-        }
-        exit(0);
-    } else {
-        // This is the parent process
-        if (isBackground) {
-            // Don't wait for the child process to finish
-            // Add the job to the jobs list
-            std::shared_ptr<Command> cmd = std::make_shared<ExternalCommand>(cmd_line);
-            SmallShell::getInstance().getJobs().addJob(cmd, false, pid);  // Pass the PID to addJob
-        } else {
-            // Wait for the child process to finish
-            int status;
-            waitpid(pid, &status, 0);
-        }
-    }
-
-    // Free the memory allocated for the arguments
-    for (int i = 0; i < num_args; ++i) {
-        free(args[i]);
-    }
-}*/
 void ExternalCommand::execute() {
     // Parse the command line into arguments
     char* args[COMMAND_MAX_ARGS];
@@ -551,14 +523,19 @@ std::shared_ptr<Command> SmallShell::CreateCommand(const char *cmd_line)
 
 void SmallShell::executeCommand(const char *cmd_line) {
     bool isBackground = _isBackgroundComamnd(cmd_line);
+    char* cmd_line_copy = strdup(cmd_line); // Create a copy of cmd_line to modify
     if (isBackground) {
         // Remove the '&' argument
-        _removeBackgroundSign(const_cast<char*>(cmd_line));
+        _removeBackgroundSign(cmd_line_copy);
     }
-    std::shared_ptr<Command> cmd = CreateCommand(cmd_line);
+    std::shared_ptr<Command> cmd = CreateCommand(cmd_line_copy);
 
-    // Check if the command is an external command
-    if (dynamic_cast<ExternalCommand*>(cmd.get())) {
+    jobs.removeFinishedJobs();
+    // Check if the command is a built-in command
+    if (!dynamic_cast<ExternalCommand*>(cmd.get())) {
+        // For built-in commands, just execute the command
+        cmd->execute();
+    } else {
         // Fork a new process
         pid_t pid = fork();
 
@@ -585,32 +562,10 @@ void SmallShell::executeCommand(const char *cmd_line) {
                 waitpid(pid, &status, 0);
             }
         }
-    } else {
-        // For built-in commands, just execute the command
-        cmd->execute();
     }
+    free(cmd_line_copy); // Free the allocated memory
 }
 
-
-/*void SmallShell::executeCommand(const char *cmd_line)
-{
-    // TODO: Add your implementation here
-    std::shared_ptr<Command> cmd = CreateCommand(cmd_line);
-
-    //fake jobs
-//    std::shared_ptr<Command> cmd1 = std::make_shared<ChpromptCommand>("chprompt");
-//    jobs.addJob(cmd1, false);
-//
-//    std::shared_ptr<Command> cmd2 = std::make_shared<ShowPidCommand>("showpid");
-//    jobs.addJob(cmd2, false);
-//
-//    std::shared_ptr<Command> cmd3 = std::make_shared<GetCurrDirCommand>("pwd");
-//    jobs.addJob(cmd3, false);
-
-
-    cmd->execute();
-    // Please note that you must fork smash process for some commands (e.g., external commands....)
-}*/
 
 const string& SmallShell::getPrompt() const
 {

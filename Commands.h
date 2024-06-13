@@ -8,7 +8,6 @@
 #define COMMAND_MAX_ARGS (20)
 
 class Command {
-// TODO: Add your data members
 protected:
     std::string cmd_line;
 public:
@@ -19,7 +18,6 @@ public:
     virtual void execute() = 0;
     //virtual void prepare();
     //virtual void cleanup();
-    // TODO: Add your extra methods if needed
     const std::string& getCmdLine() const;
 
 };
@@ -31,11 +29,9 @@ public:
         std::shared_ptr<Command> cmd;
         bool isStopped;
         pid_t pid;
-        // TODO: Add your data members
     public:
         JobEntry(int jobId, std::shared_ptr<Command> cmd, bool isStopped, pid_t pid)
                 : jobId(jobId), cmd(cmd), isStopped(isStopped), pid(pid)  {}
-        // TODO: Add your methods
 
         int getJobId() const {
             return jobId;
@@ -83,12 +79,10 @@ public:
     JobEntry *getLastJob(int *lastJobId);
 
     JobEntry *getLastStoppedJob(int *jobId);
-    // TODO: Add extra methods or modify exisitng ones as needed
 };
 
 class SmallShell {
 private:
-    // TODO: Add your data members
     char* lastPwd;
     std::string prompt = "smash";
     JobsList jobs;
@@ -110,7 +104,6 @@ public:
     ~SmallShell();
 
     void executeCommand(const char *cmd_line);
-    // TODO: add extra methods as needed
 
     const std::string& getPrompt() const;
 
@@ -168,7 +161,6 @@ public:
 };
 
 class ChangeDirCommand : public BuiltInCommand {
-// TODO: Add your data members
     char** lastPwd;
 public:
     ChangeDirCommand(const std::string& cmd_line, char **plastPwd);
@@ -179,7 +171,6 @@ public:
 };
 
 class JobsCommand : public BuiltInCommand {
-    // TODO: Add your data members
     JobsList* jobs;
 public:
     JobsCommand(const std::string& cmd_line, JobsList *jobs);
@@ -190,7 +181,6 @@ public:
 };
 
 class ForegroundCommand : public BuiltInCommand {
-    // TODO: Add your data members
     JobsList* jobs;
 public:
     ForegroundCommand(const char *cmd_line, JobsList *jobs);
@@ -201,7 +191,6 @@ public:
 };
 
 class QuitCommand : public BuiltInCommand {
-// TODO: Add your data members
     JobsList* jobs;
 public:
     QuitCommand(const std::string& cmd_line, JobsList *jobs);
@@ -212,7 +201,6 @@ public:
 };
 
 class KillCommand : public BuiltInCommand {
-    // TODO: Add your data members
     JobsList* jobs;
 public:
     KillCommand(const std::string&, JobsList *jobs);
@@ -255,7 +243,6 @@ public:
 };
 
 class PipeCommand : public Command {
-    // TODO: Add your data members
 public:
     PipeCommand(const char *cmd_line);
 
@@ -265,7 +252,6 @@ public:
 };
 
 class WatchCommand : public Command {
-    // TODO: Add your data members
 public:
     WatchCommand(const char *cmd_line);
 
@@ -275,7 +261,6 @@ public:
 };
 
 class RedirectionCommand : public Command {
-    // TODO: Add your data members
 public:
     explicit RedirectionCommand(const char *cmd_line);
 
