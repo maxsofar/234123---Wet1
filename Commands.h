@@ -1,8 +1,9 @@
 #ifndef SMASH_COMMAND_H_
 #define SMASH_COMMAND_H_
 
-#include <vector>
+#include <utility>
 #include <list>
+#include <map>
 
 #define COMMAND_MAX_LENGTH (200)
 #define COMMAND_MAX_ARGS (20)
@@ -11,8 +12,7 @@ class Command {
 protected:
     std::string cmd_line;
 public:
-    Command(const std::string& cmd_line);
-
+    explicit Command(const std::string& cmd_line);
     virtual ~Command();
 
     virtual void execute() = 0;
@@ -31,7 +31,7 @@ public:
         pid_t pid;
     public:
         JobEntry(int jobId, std::shared_ptr<Command> cmd, bool isStopped, pid_t pid)
-                : jobId(jobId), cmd(cmd), isStopped(isStopped), pid(pid)  {}
+                : jobId(jobId), cmd(std::move(cmd)), isStopped(isStopped), pid(pid)  {}
 
         int getJobId() const {
             return jobId;
@@ -62,7 +62,7 @@ private:
 public:
     JobsList();
 
-    ~JobsList();
+    ~JobsList() = default;
 
     void addJob(std::shared_ptr<Command> cmd, bool isStopped, pid_t pid);
 
@@ -78,27 +78,24 @@ public:
 
     JobEntry *getLastJob(int *lastJobId);
 
-    JobEntry *getLastStoppedJob(int *jobId);
+//    JobEntry *getLastStoppedJob(int *jobId);
 };
 
 class SmallShell {
 private:
+    // members
     char* lastPwd;
     std::string prompt = "smash";
     JobsList jobs;
-    std::unordered_map<std::string, std::string> aliases;
+    std::map<std::string, std::string> aliases;
     pid_t fgPid;
 
-
+    // methods
     SmallShell();
-    void handleBackgroundCommand(char* &cmd_line_copy, const char *cmd_line);
-    std::shared_ptr<Command> createCommandAndRemoveJobs(char* cmd_line_copy);
-    void executeExternalCommand(std::shared_ptr<Command> cmd, bool isBackground);
-
+    void executeExternalCommand(const std::shared_ptr<Command>& cmd, bool isBackground);
 
 public:
-    std::shared_ptr<Command> CreateCommand(const char *cmd_line);
-
+    std::shared_ptr<Command> CreateCommand(const std::string& cmd_line);
     SmallShell(SmallShell const &) = delete; // disable copy ctor
     void operator=(SmallShell const &) = delete; // disable = operator
     static SmallShell &getInstance() // make SmallShell singleton
@@ -107,44 +104,41 @@ public:
         // Instantiated on first use.
         return instance;
     }
-
     ~SmallShell();
 
-    void executeCommand(const char *cmd_line);
+    void executeCommand(const std::string& cmd_line);
 
+    //prompt
     const std::string& getPrompt() const;
-
     void setPrompt(const std::string& newPrompt);
 
+    //aliases
     bool isAlias(const std::string& name);
-
     const std::string& getAlias(const std::string& name);
-
     void addAlias(const std::string& name, const std::string& command);
-
     void removeAlias(const std::string& name);
-
-    const std::unordered_map<std::string, std::string>& getAliases() const;
+    const std::map<std::string, std::string>& getAliases() const;
 
     JobsList& getJobs();
 
     pid_t getFgPid() const;
+    void setFgPid(pid_t fgPid);
 };
 
 //------------------------------ Built in commands ------------------------------
 
 class BuiltInCommand : public Command {
 public:
-    BuiltInCommand(const std::string& cmd_line);
+    explicit BuiltInCommand(const std::string& cmd_line);
 
-    virtual ~BuiltInCommand() {}
+    ~BuiltInCommand() override = default;
 };
 
 class ChpromptCommand : public BuiltInCommand {
 public:
-    ChpromptCommand(const std::string& cmd_line);
+    explicit ChpromptCommand(const std::string& cmd_line);
 
-    virtual ~ChpromptCommand() {}
+    ~ChpromptCommand() override = default;
 
     void execute() override;
 
@@ -152,9 +146,9 @@ public:
 
 class ShowPidCommand : public BuiltInCommand {
 public:
-    ShowPidCommand(const std::string& cmd_line);
+    explicit ShowPidCommand(const std::string& cmd_line);
 
-    virtual ~ShowPidCommand() {}
+    ~ShowPidCommand() override = default;
 
     void execute() override;
 
@@ -162,9 +156,9 @@ public:
 
 class GetCurrDirCommand : public BuiltInCommand {
 public:
-    GetCurrDirCommand(const std::string& cmd_line);
+    explicit GetCurrDirCommand(const std::string& cmd_line);
 
-    virtual ~GetCurrDirCommand() {}
+    ~GetCurrDirCommand() override = default;
 
     void execute() override;
 };
@@ -174,7 +168,7 @@ class ChangeDirCommand : public BuiltInCommand {
 public:
     ChangeDirCommand(const std::string& cmd_line, char **plastPwd);
 
-    virtual ~ChangeDirCommand() {}
+    ~ChangeDirCommand() override = default;
 
     void execute() override;
 };
@@ -184,7 +178,7 @@ class JobsCommand : public BuiltInCommand {
 public:
     JobsCommand(const std::string& cmd_line, JobsList *jobs);
 
-    virtual ~JobsCommand() {}
+    ~JobsCommand() override = default;
 
     void execute() override;
 };
@@ -192,9 +186,9 @@ public:
 class ForegroundCommand : public BuiltInCommand {
     JobsList* jobs;
 public:
-    ForegroundCommand(const char *cmd_line, JobsList *jobs);
+    ForegroundCommand(const std::string& cmd_line, JobsList *jobs);
 
-    virtual ~ForegroundCommand() {}
+    ~ForegroundCommand() override = default;
 
     void execute() override;
 };
@@ -204,7 +198,7 @@ class QuitCommand : public BuiltInCommand {
 public:
     QuitCommand(const std::string& cmd_line, JobsList *jobs);
 
-    virtual ~QuitCommand() {}
+    ~QuitCommand() override = default;
 
     void execute() override;
 };
@@ -214,16 +208,16 @@ class KillCommand : public BuiltInCommand {
 public:
     KillCommand(const std::string&, JobsList *jobs);
 
-    virtual ~KillCommand() {}
+    ~KillCommand() override = default;
 
     void execute() override;
 };
 
 class aliasCommand : public BuiltInCommand {
 public:
-    aliasCommand(const std::string& cmd_line);
+    explicit aliasCommand(const std::string& cmd_line);
 
-    virtual ~aliasCommand() {}
+    ~aliasCommand() override = default;
 
     void execute() override;
 
@@ -233,27 +227,27 @@ private:
 
 class unaliasCommand : public BuiltInCommand {
 public:
-    unaliasCommand(const std::string& cmd_line);
+    explicit unaliasCommand(const std::string& cmd_line);
 
-    virtual ~unaliasCommand() {}
+    ~unaliasCommand() override = default;
 
     void execute() override;
 };
 
 class ListDirCommand : public BuiltInCommand {
 public:
-    ListDirCommand(const std::string& cmd_line);
+    explicit ListDirCommand(const std::string& cmd_line);
 
-    virtual ~ListDirCommand() {}
+    ~ListDirCommand() override = default;
 
     void execute() override;
 };
 
 class GetUserCommand : public BuiltInCommand {
 public:
-    GetUserCommand(const std::string& cmd_line);
+    explicit GetUserCommand(const std::string& cmd_line);
 
-    virtual ~GetUserCommand() {}
+    ~GetUserCommand() override = default;
 
     void execute() override;
 };
@@ -262,29 +256,27 @@ public:
 
 class ExternalCommand : public Command {
 public:
-    ExternalCommand(const std::string& cmd_line);
+    explicit ExternalCommand(const std::string& cmd_line);
 
-    virtual ~ExternalCommand() {}
+    ~ExternalCommand() override = default;
 
     void execute() override;
 };
 
 class RedirectionCommand : public Command {
 public:
-    explicit RedirectionCommand(const char *cmd_line);
+    explicit RedirectionCommand(const std::string& cmd_line);
 
-    virtual ~RedirectionCommand() {}
+    ~RedirectionCommand() override = default;
 
     void execute() override;
 };
-
-
 
 class PipeCommand : public Command {
 public:
     PipeCommand(const char *cmd_line);
 
-    virtual ~PipeCommand() {}
+    virtual ~PipeCommand() = default;
 
     void execute() override;
 };
@@ -293,7 +285,7 @@ class WatchCommand : public Command {
 public:
     WatchCommand(const char *cmd_line);
 
-    virtual ~WatchCommand() {}
+    virtual ~WatchCommand() = default;
 
     void execute() override;
 };

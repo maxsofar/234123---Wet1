@@ -15,11 +15,19 @@ void ctrlCHandler(int sig_num) {
     // Get the PID of the foreground process
     pid_t fgPid = shell.getFgPid();
 
-    // Send the SIGKILL signal to the foreground process
-    if (kill(fgPid, SIGKILL) == 0) {
+    // Check if fgPid is 0 or -1
+    if (fgPid == 0 || fgPid == -1) {
+        return;
+    }
+
+    // Send the SIGINT signal to the foreground process
+    if (kill(fgPid, SIGINT) == 0) {
         // Print the message
         cout << "smash: process " << fgPid << " was killed" << endl;
     } else {
         perror("smash error: failed to send signal");
     }
+
+    // Reset fgPid to -1
+    shell.setFgPid(-1);
 }
