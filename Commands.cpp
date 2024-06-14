@@ -1,13 +1,15 @@
 #include <unistd.h>
 #include <string.h>
 #include <iostream>
-#include <vector>
 #include <sstream>
 #include <sys/wait.h>
 #include <iomanip>
 #include <signal.h>
 #include "Commands.h"
 #include <fcntl.h>
+#include <dirent.h>
+#include <pwd.h>
+#include <grp.h>
 
 using namespace std;
 
@@ -365,6 +367,92 @@ void unaliasCommand::execute()
     }
 }
 
+ListDirCommand::ListDirCommand(const string& cmd_line) : BuiltInCommand(cmd_line)
+{}
+void ListDirCommand::execute() {
+    char* args[COMMAND_MAX_ARGS];
+    int num_args = _parseCommandLine(cmd_line.c_str(), args);
+
+    // Check the number of arguments
+    if (num_args > 2) {
+        cout << "smash error: listdir: Too many arguments" << endl;
+        return;
+    }
+
+    // Get the directory path
+    string dir_path = (num_args == 1) ? "." : args[1];
+
+    // Open the directory
+    DIR* dir = opendir(dir_path.c_str());
+    if (dir == NULL) {
+        perror("smash error: listdir failed");
+        return;
+    }
+
+    // Read the entries in the directory
+    struct dirent* entry;
+    while ((entry = readdir(dir)) != NULL) {
+        string type;
+        if (entry->d_type == DT_REG) {
+            type = "file";
+        } else if (entry->d_type == DT_DIR) {
+            type = "directory";
+        } else if (entry->d_type == DT_LNK) {
+            type = "link";
+        } else {
+            type = "other";
+        }
+        cout << type << ": " << entry->d_name << endl;
+    }
+
+    // Close the directory
+    closedir(dir);
+
+    // Free the memory allocated for the arguments
+    for (int i = 0; i < num_args; i++) {
+        free(args[i]);
+    }
+}
+
+GetUserCommand::GetUserCommand(const std::string &cmd_line) : BuiltInCommand(cmd_line)
+{}
+void GetUserCommand::execute()
+{
+    char* args[COMMAND_MAX_ARGS];
+    int num_args = _parseCommandLine(cmd_line.c_str(), args);
+
+    if (num_args > 2) {
+        cout << "smash error: getuser: Too many arguments" << endl;
+        return;
+    }
+
+    pid_t pid = atoi(args[1]);
+    struct passwd *pw;
+    struct group *gr;
+
+    errno = 0;
+    if ((pw = getpwuid(pid)) == NULL) {
+        if (errno == 0) {
+            cout << "smash error: getuser: process " << pid << " does not exist" << endl;
+        } else {
+            perror("smash error: getpwuid failed");
+        }
+        return;
+    }
+
+    if ((gr = getgrgid(pw->pw_gid)) == NULL) {
+        perror("smash error: getgrgid failed");
+        return;
+    }
+
+    cout << "User: " << pw->pw_name << endl; // Print username on a new line
+    cout << "Group: " << gr->gr_name << endl; // Print group on a new line
+
+    // Don't forget to free the memory allocated by _parseCommandLine
+    for (int i = 0; i < num_args; i++) {
+        free(args[i]);
+    }
+}
 
 //---------------------------------- Job List ----------------------------------
 
@@ -544,6 +632,11 @@ shared_ptr<Command> SmallShell::CreateCommand(const char *cmd_line)
         return make_shared<RedirectionCommand>(cmd_line);
     }
 
+    // getuser command
+    if (firstWord.compare("getuser") == 0) {
+        return make_shared<GetUserCommand>(cmd_line);
+    }
+
     if (firstWord.compare("chprompt") == 0) {
         return make_shared<ChpromptCommand>(cmd_line);
     } else if (firstWord.compare("showpid") == 0) {
@@ -564,6 +657,8 @@ shared_ptr<Command> SmallShell::CreateCommand(const char *cmd_line)
         return make_shared<KillCommand>(cmd_line, &jobs);
     } else if (firstWord.compare("fg") == 0) {
         return make_shared<ForegroundCommand>(cmd_line, &jobs);
+    } else if (firstWord.compare("listdir") == 0) { // Add this condition
+        return make_shared<ListDirCommand>(cmd_line); // Create a new ListDirCommand instance
     } else {
         // Check if the first word is an alias
         if (isAlias(firstWord)) {
@@ -613,6 +708,7 @@ void SmallShell::executeExternalCommand(shared_ptr<Command> cmd, bool isBackgrou
             jobs.addJob(cmd, false, pid);
         } else {
             // Wait for the child process to finish
+            fgPid = pid; // Update the PID of the foreground process
             int status;
             waitpid(pid, &status, 0);
         }
@@ -757,5 +853,10 @@ void SmallShell::removeAlias(const string& name) {
 JobsList& SmallShell::getJobs()
 {
     return jobs;
+}
+
+pid_t SmallShell::getFgPid() const
+{
+    return fgPid;
 }
 

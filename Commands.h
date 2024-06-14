@@ -87,6 +87,7 @@ private:
     std::string prompt = "smash";
     JobsList jobs;
     std::unordered_map<std::string, std::string> aliases;
+    pid_t fgPid;
 
 
     SmallShell();
@@ -126,6 +127,8 @@ public:
     const std::unordered_map<std::string, std::string>& getAliases() const;
 
     JobsList& getJobs();
+
+    pid_t getFgPid() const;
 };
 
 //------------------------------ Built in commands ------------------------------
@@ -237,6 +240,24 @@ public:
     void execute() override;
 };
 
+class ListDirCommand : public BuiltInCommand {
+public:
+    ListDirCommand(const std::string& cmd_line);
+
+    virtual ~ListDirCommand() {}
+
+    void execute() override;
+};
+
+class GetUserCommand : public BuiltInCommand {
+public:
+    GetUserCommand(const std::string& cmd_line);
+
+    virtual ~GetUserCommand() {}
+
+    void execute() override;
+};
+
 //------------------------------ External Commands ------------------------------
 
 class ExternalCommand : public Command {
@@ -247,6 +268,17 @@ public:
 
     void execute() override;
 };
+
+class RedirectionCommand : public Command {
+public:
+    explicit RedirectionCommand(const char *cmd_line);
+
+    virtual ~RedirectionCommand() {}
+
+    void execute() override;
+};
+
+
 
 class PipeCommand : public Command {
 public:
@@ -266,32 +298,9 @@ public:
     void execute() override;
 };
 
-class RedirectionCommand : public Command {
-public:
-    explicit RedirectionCommand(const char *cmd_line);
 
-    virtual ~RedirectionCommand() {}
 
-    void execute() override;
-};
 
-class ListDirCommand : public BuiltInCommand {
-public:
-    ListDirCommand(const char *cmd_line);
-
-    virtual ~ListDirCommand() {}
-
-    void execute() override;
-};
-
-class GetUserCommand : public BuiltInCommand {
-public:
-    GetUserCommand(const char *cmd_line);
-
-    virtual ~GetUserCommand() {}
-
-    void execute() override;
-};
 
 
 #endif //SMASH_COMMAND_H_
