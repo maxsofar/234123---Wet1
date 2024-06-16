@@ -2,7 +2,6 @@
 #include <string.h>
 #include <iostream>
 #include <sstream>
-#include <sys/wait.h>
 #include <iomanip>
 #include <signal.h>
 #include "Commands.h"
@@ -10,6 +9,7 @@
 #include <dirent.h>
 #include <pwd.h>
 #include <grp.h>
+#include <algorithm>
 
 using namespace std;
 

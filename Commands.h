@@ -4,6 +4,8 @@
 #include <utility>
 #include <list>
 #include <map>
+#include <memory>
+#include <sys/wait.h>
 
 #define COMMAND_MAX_LENGTH (200)
 #define COMMAND_MAX_ARGS (20)
