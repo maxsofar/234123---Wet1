@@ -639,7 +639,7 @@ void GetUserCommand::execute()
     }
 
     char line[256];
-    uid_t uid = -1;
+    uid_t uid = numeric_limits<uid_t>::max(); // Initialize to maximum value
     while (fgets(line, sizeof(line), status)) {
         if (strncmp(line, "Uid:", 4) == 0) {
             sscanf(line, "Uid:\t%d", &uid);
@@ -648,7 +648,7 @@ void GetUserCommand::execute()
     }
     fclose(status);
 
-    if (uid == -1) {
+    if (uid == numeric_limits<uid_t>::max()) {
         cerr << "smash error: getuser: failed to get UID of process " << pid << endl;
         return;
     }
