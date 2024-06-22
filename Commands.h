@@ -6,6 +6,8 @@
 #include <map>
 #include <memory>
 #include <sys/wait.h>
+#include <set>
+
 
 #define COMMAND_MAX_LENGTH (200)
 #define COMMAND_MAX_ARGS (20)
@@ -97,6 +99,8 @@ private:
     void executeExternalCommand(const std::shared_ptr<Command>& cmd, bool isBackground);
 
 public:
+    static const std::set<std::string> RESERVED_KEYWORDS;
+
     std::shared_ptr<Command> CreateCommand(const std::string& cmd_line);
     SmallShell(SmallShell const &) = delete; // disable copy ctor
     void operator=(SmallShell const &) = delete; // disable = operator
@@ -224,7 +228,7 @@ public:
     void execute() override;
 
 private:
-    bool isValidAlias(const std::string& name);
+    static bool isValidAlias(const std::string& name, const std::string& command);
 };
 
 class unaliasCommand : public BuiltInCommand {

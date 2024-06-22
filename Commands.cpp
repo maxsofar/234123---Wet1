@@ -2,18 +2,22 @@
 #include <string.h>
 #include <iostream>
 #include <sstream>
-#include <iomanip>
 #include <signal.h>
 #include "Commands.h"
 #include <fcntl.h>
-#include <dirent.h>
 #include <pwd.h>
 #include <grp.h>
 #include <algorithm>
+#include <dirent.h>
+#include <sys/stat.h>
+#include <vector>
 
 using namespace std;
 
 const string WHITESPACE = " \n\r\t\f\v";
+
+const set<std::string> SmallShell::RESERVED_KEYWORDS =
+        {"chprompt", "showpid", "pwd", "cd", "jobs", "fg", "quit", "kill", "alias", "unalias", "listdir", ">", ">>", "getuser", "|", "watch"};
 
 #if 0
 #define FUNC_ENTRY()  \
@@ -124,7 +128,15 @@ void ChpromptCommand::execute() {
 ShowPidCommand::ShowPidCommand(const string& cmd_line) : BuiltInCommand(cmd_line)
 {}
 void ShowPidCommand::execute() {
-    cout << "smash pid is " << getpid() << endl;
+    pid_t pid = getpid(); // Get the current process ID
+
+    if (pid == -1) {
+        // Error handling for failed getpid
+        perror("smash error: getpid failed");
+        exit(1); // Exit with an error code (optional)
+    } else {
+        cout << "smash pid is " << pid << endl;
+    }
 }
 
 
@@ -132,7 +144,7 @@ GetCurrDirCommand::GetCurrDirCommand(const string& cmd_line) : BuiltInCommand(cm
 {}
 void GetCurrDirCommand::execute() {
     char buf[PATH_MAX];
-    if (getcwd(buf, PATH_MAX) == NULL) {
+    if (getcwd(buf, PATH_MAX) == nullptr) {
         perror("smash error: getcwd failed");
     } else {
         cout << buf << endl;
@@ -145,33 +157,50 @@ ChangeDirCommand::ChangeDirCommand(const string& cmd_line, char **plastPwd) : Bu
 void ChangeDirCommand::execute() {
     char* args[COMMAND_MAX_ARGS];
     int num_args = _parseCommandLine(cmd_line.c_str(), args);
+
+    // Check if the number of arguments is valid
     if (num_args > 2) {
         cerr << "smash error: cd: too many arguments" << endl;
         return;
     }
+
     char* path = args[1];
+
+    // If no path was provided, do nothing
     if (path == nullptr) {
         return;
     }
 
+    // If the path is "-", change to the previous working directory
     if (strcmp(path, "-") == 0) {
         if (*lastPwd == nullptr) {
+            // If OLDPWD is not set, print an error message
             cerr << "smash error: cd: OLDPWD not set" << endl;
             return;
         }
         path = *lastPwd;
     }
 
-    //TODO: implement not exist path error handling (Error Handling section)
-    char* newPwd = getcwd(NULL, 0);
+    // Obtain the current working directory
+    char* currPwd = getcwd(nullptr, 0);
+    if (currPwd == nullptr) {
+        perror("smash error: getcwd failed");
+        return;
+    }
+
+    // Change the working directory
     if (chdir(path) == -1) {
         perror("smash error: chdir failed");
-        free(newPwd);
+        free(currPwd);
         return;
     }
 
     free(*lastPwd);
-    *lastPwd = newPwd;
+    *lastPwd = currPwd;
+
+    for (int i = 0; i < num_args; i++) {
+        free(args[i]);
+    }
 }
 
 
@@ -237,14 +266,18 @@ void ForegroundCommand::execute() {
     SmallShell::getInstance().setFgPid(job->getPid());
 
     // Bring the process to the foreground by waiting for it
-    int status;
-    if (waitpid(job->getPid(), &status, WCONTINUED | WUNTRACED) == -1) {
+    if (waitpid(job->getPid(), nullptr, WCONTINUED | WUNTRACED) == -1) {
         perror("smash error: waitpid failed");
     }
 
     // Remove the job from the jobs list
     jobs->removeJobById(jobId);
+
+    for (int i = 0; i < numArgs; i++) {
+        free(args[i]);
+    }
 }
+
 
 QuitCommand::QuitCommand(const string& cmd_line, JobsList* jobs) : BuiltInCommand(cmd_line), jobs(jobs)
 {}
@@ -261,6 +294,7 @@ void QuitCommand::execute() {
     exit(0);
 }
 
+
 KillCommand::KillCommand(const string& cmd_line, JobsList* jobs) : BuiltInCommand(cmd_line), jobs(jobs)
 {}
 void KillCommand::execute()
@@ -273,19 +307,25 @@ void KillCommand::execute()
         return;
     }
 
-    int signum = atoi(args[1] + 1); // skip the '-'
-    int jobid = atoi(args[2]);
-
-    // Check if signum and jobid are positive
-    if (signum <= 0 || jobid <= 0) {
+    int signum;
+    int jobId;
+    try {
+        signum = std::stoi(args[1] + 1); // skip the '-'
+        jobId = std::stoi(args[2]);
+    } catch (std::invalid_argument& e) {
         cerr << "smash error: kill: invalid arguments" << endl;
         return;
     }
 
+    // Check if signum and jobId are positive
+    if (signum <= 0 || jobId <= 0) {
+        cerr << "smash error: kill: invalid arguments" << endl;
+        return;
+    }
 
-    JobsList::JobEntry *job = jobs->getJobById(jobid);
+    JobsList::JobEntry *job = jobs->getJobById(jobId);
     if (!job) {
-        cerr << "smash error: kill: job-id " << jobid << " does not exist" << endl;
+        cerr << "smash error: kill: job-id " << jobId << " does not exist" << endl;
         return;
     }
 
@@ -295,7 +335,7 @@ void KillCommand::execute()
     }
 
     cout << "signal number " << signum << " was sent to pid " << job->getPid() << endl;
-    jobs->removeJobById(jobid);
+    jobs->removeJobById(jobId);
 
     // Don't forget to free the memory allocated by _parseCommandLine
     for (int i = 0; i < num_args; i++) {
@@ -315,27 +355,57 @@ void aliasCommand::execute()
     if (pos != string::npos) {
         cmd_line.erase(0, pos + 5); // 5 is the length of 'alias'
     }
-    if (cmd_line.find('=') == string::npos) { // No '=' found, list all aliases
+
+    // Trim the command line
+    cmd_line = _trim(cmd_line);
+
+    // If the command line is empty after removing 'alias', list all aliases
+    if (cmd_line.empty()) {
         for (const auto& alias : smash.getAliases()) {
             cout << alias.first << "='" << alias.second << "'" << endl;
         }
-    } else { // '=' found, add new alias
-        string name = _trim(cmd_line.substr(0, cmd_line.find('=')));
-        string command = _trim(cmd_line.substr(cmd_line.find('=') + 1));
+        return;
+    }
 
+    // Check if there's an equal sign after the 'alias' keyword
+    if (cmd_line.find('=') == string::npos) {
+        cerr << "smash error: alias: Invalid command format" << endl;
+        return;
+    }
+
+    string name = _trim(cmd_line.substr(0, cmd_line.find('=')));
+    string command = _trim(cmd_line.substr(cmd_line.find('=') + 1));
+
+    // Check if the command is surrounded by single quotes
+    if (command.front() == '\'' && command.back() == '\'') {
         // Remove the single quotes from the command
-        command.erase(remove(command.begin(), command.end(), '\''), command.end());
+        command = command.substr(1, command.length() - 2);
+    } else {
+        cerr << "smash error: alias: Invalid command format" << endl;
+        return;
+    }
 
-        if (smash.isAlias(name)) {
-            cerr << "smash error: alias: " << name << " already exists or is a reserved command" << endl;
-        } else if (!isValidAlias(name)) {
-            cerr << "smash error: alias: Invalid alias format" << endl;
-        } else {
-            smash.addAlias(name, command);
-        }
+    // Check if the name is a reserved keyword or already exists as an alias
+    if (smash.isAlias(name) || SmallShell::RESERVED_KEYWORDS.find(name) != SmallShell::RESERVED_KEYWORDS.end()) {
+        cerr << "smash error: alias: " << name << " already exists or is a reserved command" << endl;
+    } else if (!isValidAlias(name, command)) {
+        cerr << "smash error: alias: Invalid alias format" << endl;
+    } else {
+        smash.addAlias(name, command);
     }
 }
-bool aliasCommand::isValidAlias(const string& name) {
+bool aliasCommand::isValidAlias(const string& name, const string& command) {
+    // Check if the name is empty
+    if (name.empty()) {
+        return false;
+    }
+
+    // Check if the command being aliased is one of the 3 commands '>', '>>', '|'
+    if (command == ">" || command == ">>" || command == "|") {
+        return false;
+    }
+
+    // Check if the name contains only valid characters
     for (char c : name) {
         if (!isalnum(c) && c != '_') {
             return false;
@@ -379,6 +449,51 @@ void unaliasCommand::execute()
 
 ListDirCommand::ListDirCommand(const string& cmd_line) : BuiltInCommand(cmd_line)
 {}
+//void ListDirCommand::execute() {
+//    char* args[COMMAND_MAX_ARGS];
+//    int num_args = _parseCommandLine(cmd_line.c_str(), args);
+//
+//    // Check the number of arguments
+//    if (num_args > 2) {
+//        cerr << "smash error: listdir: Too many arguments" << endl;
+//        return;
+//    }
+//
+//    // Get the directory path
+//    string dir_path = (num_args == 1) ? "." : args[1];
+//
+//    // Open the directory
+//    DIR* dir = opendir(dir_path.c_str());
+//    if (dir == NULL) {
+//        perror("smash error: listdir failed");
+//        return;
+//    }
+//
+//    // Read the entries in the directory
+//    struct dirent* entry;
+//    while ((entry = readdir(dir)) != NULL) {
+//        string type;
+//        if (entry->d_type == DT_REG) {
+//            type = "file";
+//        } else if (entry->d_type == DT_DIR) {
+//            type = "directory";
+//        } else if (entry->d_type == DT_LNK) {
+//            type = "link";
+//        } else {
+//            type = "other";
+//        }
+//        cout << type << ": " << entry->d_name << endl;
+//    }
+//
+//    // Close the directory
+//    closedir(dir);
+//
+//    // Free the memory allocated for the arguments
+//    for (int i = 0; i < num_args; i++) {
+//        free(args[i]);
+//    }
+//}
+
 void ListDirCommand::execute() {
     char* args[COMMAND_MAX_ARGS];
     int num_args = _parseCommandLine(cmd_line.c_str(), args);
@@ -391,38 +506,73 @@ void ListDirCommand::execute() {
 
     // Get the directory path
     string dir_path = (num_args == 1) ? "." : args[1];
-
     // Open the directory
-    DIR* dir = opendir(dir_path.c_str());
-    if (dir == NULL) {
-        perror("smash error: listdir failed");
+    int fd = open(dir_path.c_str(), O_RDONLY | O_DIRECTORY);
+    if (fd == -1) {
+        perror("Could not open directory");
         return;
     }
 
-    // Read the entries in the directory
-    struct dirent* entry;
-    while ((entry = readdir(dir)) != NULL) {
-        string type;
-        if (entry->d_type == DT_REG) {
-            type = "file";
-        } else if (entry->d_type == DT_DIR) {
-            type = "directory";
-        } else if (entry->d_type == DT_LNK) {
-            type = "link";
-        } else {
-            type = "other";
+    char buffer[8192];
+    struct dirent* dirent;
+    off_t basep = 0;
+    ssize_t bytes_read;
+
+    vector<string> files;
+    vector<string> directories;
+
+    while ((bytes_read = getdirentries(fd, buffer, sizeof(buffer), &basep)) > 0) {
+        for (int i = 0; i < bytes_read; i += dirent->d_reclen) {
+            dirent = (struct dirent *) (&buffer[i]);
+
+            // Ignore hidden files and directories
+            if (dirent->d_name[0] == '.') {
+                continue;
+            }
+
+            // Get the full path of the entry
+            string full_path = dir_path + "/" + dirent->d_name;
+
+            // Get information about the entry
+            struct stat entry_stat;
+            if (stat(full_path.c_str(), &entry_stat) == -1) {
+                perror("Could not get entry information");
+                continue;
+            }
+
+            // Check if the entry is a file or a directory
+            if (S_ISREG(entry_stat.st_mode)) {
+                files.push_back(dirent->d_name);
+            } else if (S_ISDIR(entry_stat.st_mode)) {
+                directories.push_back(dirent->d_name);
+            }
         }
-        cout << type << ": " << entry->d_name << endl;
     }
 
-    // Close the directory
-    closedir(dir);
+    if (bytes_read == -1) {
+        perror("Could not read directory entries");
+    }
+
+    close(fd);
+
+    // Sort and print files
+    sort(files.begin(), files.end());
+    for (const auto& file : files) {
+        std::cout << "File: " << file << std::endl;
+    }
+
+    // Sort and print directories
+    sort(directories.begin(), directories.end());
+    for (const auto& directory : directories) {
+        std::cout << "Directory: " << directory << std::endl;
+    }
 
     // Free the memory allocated for the arguments
     for (int i = 0; i < num_args; i++) {
         free(args[i]);
     }
 }
+
 
 GetUserCommand::GetUserCommand(const std::string &cmd_line) : BuiltInCommand(cmd_line)
 {}
@@ -431,8 +581,8 @@ void GetUserCommand::execute()
     char* args[COMMAND_MAX_ARGS];
     int num_args = _parseCommandLine(cmd_line.c_str(), args);
 
-    if (num_args > 2) {
-        cerr << "smash error: getuser: Too many arguments" << endl;
+    if (num_args != 2) {
+        cerr << "smash error: getuser: invalid number of arguments" << endl;
         return;
     }
 
@@ -440,8 +590,31 @@ void GetUserCommand::execute()
     struct passwd *pw;
     struct group *gr;
 
+    // Read the UID of the process from /proc/<PID>/status
+    string status_file = "/proc/" + to_string(pid) + "/status";
+    FILE* status = fopen(status_file.c_str(), "r");
+    if (status == nullptr) {
+        perror("smash error: fopen failed");
+        return;
+    }
+
+    char line[256];
+    uid_t uid = -1;
+    while (fgets(line, sizeof(line), status)) {
+        if (strncmp(line, "Uid:", 4) == 0) {
+            sscanf(line, "Uid:\t%d", &uid);
+            break;
+        }
+    }
+    fclose(status);
+
+    if (uid == -1) {
+        cerr << "smash error: getuser: failed to get UID of process " << pid << endl;
+        return;
+    }
+
     errno = 0;
-    if ((pw = getpwuid(pid)) == NULL) {
+    if ((pw = getpwuid(uid)) == nullptr) {
         if (errno == 0) {
             cerr << "smash error: getuser: process " << pid << " does not exist" << endl;
         } else {
@@ -450,7 +623,7 @@ void GetUserCommand::execute()
         return;
     }
 
-    if ((gr = getgrgid(pw->pw_gid)) == NULL) {
+    if ((gr = getgrgid(pw->pw_gid)) == nullptr) {
         perror("smash error: getgrgid failed");
         return;
     }
@@ -469,8 +642,17 @@ void GetUserCommand::execute()
 JobsList::JobsList() : maxJobId(1)
 {}
 
+void JobsList::removeFinishedJobs() {
+    for (auto it = jobs.begin(); it != jobs.end(); ) {
+        if (it->isFinished()) {
+            it = jobs.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
 void JobsList::printJobsList() {
-    removeFinishedJobs();
     for (const auto& job : jobs) {
         cout << "[" << job.getJobId() << "] "
                   << job.getCmd()->getCmdLine() << "&"
@@ -492,18 +674,8 @@ void JobsList::killAllJobs() {
     cout << "smash: sending SIGKILL signal to " << jobs.size() << " jobs:" << endl;
     for (auto &job : jobs) {
         if (!job.isFinished()) {
-            cout << job.getPid() << ": " << job.getCmdLine() << endl;
+            cout << job.getPid() << ": " << job.getCmdLine() << "&" << endl;
             kill(job.getPid(), SIGKILL);
-        }
-    }
-}
-
-void JobsList::removeFinishedJobs() {
-    for (auto it = jobs.begin(); it != jobs.end(); ) {
-        if (it->isFinished()) {
-            it = jobs.erase(it);
-        } else {
-            ++it;
         }
     }
 }
@@ -549,14 +721,13 @@ JobsList::JobEntry *JobsList::getLastJob(int *lastJobId) {
 
 ExternalCommand::ExternalCommand(const string& cmd_line) : Command(cmd_line)
 {}
-
 void ExternalCommand::execute() {
     // Parse the command line into arguments
     char* args[COMMAND_MAX_ARGS];
     int num_args = _parseCommandLine(cmd_line.c_str(), args);
 
     // Ensure args is null-terminated
-    args[num_args] = NULL;
+    args[num_args] = nullptr;
 
     // Check if the command line contains any special characters
     if (cmd_line.find('*') != string::npos || cmd_line.find('?') != string::npos) {
@@ -565,7 +736,7 @@ void ExternalCommand::execute() {
         bash_args[0] = "/bin/bash";
         bash_args[1] = "-c";
         bash_args[2] = cmd_line.c_str();
-        bash_args[3] = NULL;
+        bash_args[3] = nullptr;
         if (execvp(bash_args[0], const_cast<char* const*>(bash_args)) < 0) {
             cerr << "Exec failed" << endl;
         }
@@ -583,7 +754,6 @@ void ExternalCommand::execute() {
 }
 
 RedirectionCommand::RedirectionCommand(const std::string& cmd_line): Command(cmd_line) {}
-
 void RedirectionCommand::execute()
 {
     // Split the command line into command and file
@@ -639,23 +809,11 @@ SmallShell::~SmallShell() {
     }
 }
 
-/**
-* Creates and returns a pointer to Command class which matches the given command line (cmd_line)
-*/
 shared_ptr<Command> SmallShell::CreateCommand(const std::string& cmd_line)
 {
     std::string cmd_s = _trim(cmd_line);
     std::string firstWord = cmd_s.substr(0, cmd_s.find_first_of(" \n"));
 
-    // Check for redirection in the command line
-    if (cmd_s.find('>') != string::npos) {
-        return make_shared<RedirectionCommand>(cmd_line);
-    }
-
-    // getuser command
-    if (firstWord == "getuser") {
-        return make_shared<GetUserCommand>(cmd_line);
-    }
 
     if (firstWord == "chprompt") {
         return make_shared<ChpromptCommand>(cmd_line);
@@ -679,6 +837,8 @@ shared_ptr<Command> SmallShell::CreateCommand(const std::string& cmd_line)
         return make_shared<ForegroundCommand>(cmd_line, &jobs);
     } else if (firstWord == "listdir") { // Add this condition
         return make_shared<ListDirCommand>(cmd_line); // Create a new ListDirCommand instance
+    } else if (firstWord == "getuser") {
+        return make_shared<GetUserCommand>(cmd_line);
     } else {
         // Check if the first word is an alias
         if (isAlias(firstWord)) {
@@ -686,6 +846,12 @@ shared_ptr<Command> SmallShell::CreateCommand(const std::string& cmd_line)
             string aliasCommand = getAlias(firstWord);
             cmd_s = cmd_s.replace(0, firstWord.length(), aliasCommand);
         }
+
+        // Check for redirection in the command line
+        if (cmd_s.find('>') != string::npos) {
+            return make_shared<RedirectionCommand>(cmd_line);
+        }
+
         return make_shared<ExternalCommand>(cmd_s);
     }
 }
