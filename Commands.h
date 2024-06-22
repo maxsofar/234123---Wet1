@@ -280,7 +280,7 @@ public:
 
 class PipeCommand : public Command {
 public:
-    PipeCommand(const char *cmd_line);
+    explicit PipeCommand(const std::string& cmd_line);
 
     virtual ~PipeCommand() = default;
 
@@ -289,7 +289,7 @@ public:
 
 class WatchCommand : public Command {
 public:
-    WatchCommand(const char *cmd_line);
+    WatchCommand(const std::string& cmd_line);
 
     virtual ~WatchCommand() = default;
 

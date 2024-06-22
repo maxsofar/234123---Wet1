@@ -447,53 +447,50 @@ void unaliasCommand::execute()
 
 //---------------------------------- Special Commands ----------------------------------
 
+RedirectionCommand::RedirectionCommand(const std::string& cmd_line): Command(cmd_line) {}
+void RedirectionCommand::execute()
+{
+    // Split the command line into command and file
+    std::string cmd_s = getCmdLine();
+    size_t pos = cmd_s.find('>');
+    std::string command = cmd_s.substr(0, pos);
+    std::string file = cmd_s.substr(pos + 1);
+
+    // Trim the file string
+    file = _trim(file);
+
+    // Determine the redirection mode
+    int mode = (cmd_s[pos + 1] == '>') ? O_APPEND : O_TRUNC;
+
+    // If append mode, remove the extra '>' from the file string
+    if (mode == O_APPEND) {
+        file = _trim(file.substr(1));
+    }
+
+    // Open the file
+    int fd = open(file.c_str(), O_WRONLY | O_CREAT | mode, 0666);
+    if (fd == -1) {
+        perror("open");
+        return;
+    }
+
+    // Save the original stdout
+    int stdout_copy = dup(STDOUT_FILENO);
+
+    // Redirect stdout to the file
+    dup2(fd, STDOUT_FILENO);
+    close(fd);
+
+    // Execute the command
+    SmallShell::getInstance().executeCommand(command);
+
+    // Reset stdout
+    dup2(stdout_copy, STDOUT_FILENO);
+    close(stdout_copy);
+}
+
 ListDirCommand::ListDirCommand(const string& cmd_line) : BuiltInCommand(cmd_line)
 {}
-//void ListDirCommand::execute() {
-//    char* args[COMMAND_MAX_ARGS];
-//    int num_args = _parseCommandLine(cmd_line.c_str(), args);
-//
-//    // Check the number of arguments
-//    if (num_args > 2) {
-//        cerr << "smash error: listdir: Too many arguments" << endl;
-//        return;
-//    }
-//
-//    // Get the directory path
-//    string dir_path = (num_args == 1) ? "." : args[1];
-//
-//    // Open the directory
-//    DIR* dir = opendir(dir_path.c_str());
-//    if (dir == NULL) {
-//        perror("smash error: listdir failed");
-//        return;
-//    }
-//
-//    // Read the entries in the directory
-//    struct dirent* entry;
-//    while ((entry = readdir(dir)) != NULL) {
-//        string type;
-//        if (entry->d_type == DT_REG) {
-//            type = "file";
-//        } else if (entry->d_type == DT_DIR) {
-//            type = "directory";
-//        } else if (entry->d_type == DT_LNK) {
-//            type = "link";
-//        } else {
-//            type = "other";
-//        }
-//        cout << type << ": " << entry->d_name << endl;
-//    }
-//
-//    // Close the directory
-//    closedir(dir);
-//
-//    // Free the memory allocated for the arguments
-//    for (int i = 0; i < num_args; i++) {
-//        free(args[i]);
-//    }
-//}
-
 void ListDirCommand::execute() {
     char* args[COMMAND_MAX_ARGS];
     int num_args = _parseCommandLine(cmd_line.c_str(), args);
@@ -549,9 +546,9 @@ void ListDirCommand::execute() {
         }
     }
 
-    if (bytes_read == -1) {
-        perror("Could not read directory entries");
-    }
+//    if (bytes_read == -1) {
+//        perror("Could not read directory entries");
+//    }
 
     close(fd);
 
@@ -572,7 +569,50 @@ void ListDirCommand::execute() {
         free(args[i]);
     }
 }
-
+//void ListDirCommand::execute() {
+//    char* args[COMMAND_MAX_ARGS];
+//    int num_args = _parseCommandLine(cmd_line.c_str(), args);
+//
+//    // Check the number of arguments
+//    if (num_args > 2) {
+//        cerr << "smash error: listdir: Too many arguments" << endl;
+//        return;
+//    }
+//
+//    // Get the directory path
+//    string dir_path = (num_args == 1) ? "." : args[1];
+//
+//    // Open the directory
+//    DIR* dir = opendir(dir_path.c_str());
+//    if (dir == NULL) {
+//        perror("smash error: listdir failed");
+//        return;
+//    }
+//
+//    // Read the entries in the directory
+//    struct dirent* entry;
+//    while ((entry = readdir(dir)) != NULL) {
+//        string type;
+//        if (entry->d_type == DT_REG) {
+//            type = "file";
+//        } else if (entry->d_type == DT_DIR) {
+//            type = "directory";
+//        } else if (entry->d_type == DT_LNK) {
+//            type = "link";
+//        } else {
+//            type = "other";
+//        }
+//        cout << type << ": " << entry->d_name << endl;
+//    }
+//
+//    // Close the directory
+//    closedir(dir);
+//
+//    // Free the memory allocated for the arguments
+//    for (int i = 0; i < num_args; i++) {
+//        free(args[i]);
+//    }
+//}
 
 GetUserCommand::GetUserCommand(const std::string &cmd_line) : BuiltInCommand(cmd_line)
 {}
@@ -634,6 +674,128 @@ void GetUserCommand::execute()
     // Don't forget to free the memory allocated by _parseCommandLine
     for (int i = 0; i < num_args; i++) {
         free(args[i]);
+    }
+}
+
+
+PipeCommand::PipeCommand(const string& cmd_line) : Command(cmd_line)
+{}
+void PipeCommand::execute() {
+    int pipefd[2];
+    if (pipe(pipefd) == -1) {
+        perror("smash error: pipe failed");
+        return;
+    }
+
+    std::string cmd_s = getCmdLine();
+    size_t pos = cmd_s.find('|');
+    std::string cmd1 = cmd_s.substr(0, pos);
+    std::string cmd2 = cmd_s.substr(pos + 1);
+
+    bool isStderr = cmd_s[pos + 1] == '&';
+
+    char* args1[COMMAND_MAX_ARGS];
+    int num_args1 = _parseCommandLine(cmd1.c_str(), args1);
+
+    pid_t pid1 = fork();
+    if (pid1 < 0) {
+        perror("smash error: fork failed");
+        return;
+    }
+
+    if (pid1 == 0) {
+        close(pipefd[0]);
+        if (dup2(pipefd[1], STDOUT_FILENO) == -1) {
+            perror("smash error: dup2 failed");
+            exit(1);
+        }
+        if (isStderr && dup2(pipefd[1], STDERR_FILENO) == -1) {
+            perror("smash error: dup2 failed");
+            exit(1);
+        }
+        if (execvp(args1[0], args1) < 0) {
+            perror("smash error: execvp failed");
+            exit(1);
+        }
+    }
+
+    char* args2[COMMAND_MAX_ARGS];
+    int num_args2 = _parseCommandLine(cmd2.c_str(), args2);
+
+    pid_t pid2 = fork();
+    if (pid2 < 0) {
+        perror("smash error: fork failed");
+        return;
+    }
+
+    if (pid2 == 0) {
+        close(pipefd[1]);
+        if (dup2(pipefd[0], STDIN_FILENO) == -1) {
+            perror("smash error: dup2 failed");
+            exit(1);
+        }
+        if (execvp(args2[0], args2) < 0) {
+            perror("smash error: execvp failed");
+            exit(1);
+        }
+    }
+
+    close(pipefd[0]);
+    close(pipefd[1]);
+    int status;
+    waitpid(pid1, &status, 0);
+    waitpid(pid2, &status, 0);
+
+    for (int i = 0; i < num_args1; i++) {
+        free(args1[i]);
+    }
+    for (int i = 0; i < num_args2; i++) {
+        free(args2[i]);
+    }
+}
+
+WatchCommand::WatchCommand(const string& cmd_line) : Command(cmd_line)
+{}
+void WatchCommand::execute()
+{
+    // Add a signal handler for SIGINT
+    signal(SIGINT, [](int signum) {
+        exit(0);
+    });
+
+    char* args[COMMAND_MAX_ARGS];
+    int num_args = _parseCommandLine(cmd_line.c_str(), args);
+
+    if (num_args < 3) {
+        cerr << "smash error: watch: command not specified" << endl;
+        return;
+    }
+
+    int interval;
+    try {
+        interval = std::stoi(args[1]);
+    } catch (std::invalid_argument& e) {
+        cerr << "smash error: watch: invalid interval" << endl;
+        return;
+    }
+
+    if (interval <= 0) {
+        cerr << "smash error: watch: invalid interval" << endl;
+        return;
+    }
+
+    string command = args[2];
+
+    for (int i = 0; i < num_args; i++) {
+        free(args[i]);
+    }
+
+    while (true) {
+        // Execute the command
+        SmallShell::getInstance().executeCommand(command);
+
+        // Sleep for the given interval
+        sleep(interval);
     }
 }
 
@@ -738,12 +900,14 @@ void ExternalCommand::execute() {
         bash_args[2] = cmd_line.c_str();
         bash_args[3] = nullptr;
         if (execvp(bash_args[0], const_cast<char* const*>(bash_args)) < 0) {
-            cerr << "Exec failed" << endl;
+            perror("smash error: execvp failed");
+            exit(1);
         }
     } else {
         // This is a simple command, run it directly
         if (execvp(args[0], args) < 0) {
-            cerr << "Exec failed" << endl;
+            perror("smash error: execvp failed");
+            exit(1);
         }
     }
 
@@ -751,48 +915,6 @@ void ExternalCommand::execute() {
     for (int i = 0; i < num_args; ++i) {
         free(args[i]);
     }
-}
-
-RedirectionCommand::RedirectionCommand(const std::string& cmd_line): Command(cmd_line) {}
-void RedirectionCommand::execute()
-{
-    // Split the command line into command and file
-    std::string cmd_s = getCmdLine();
-    size_t pos = cmd_s.find('>');
-    std::string command = cmd_s.substr(0, pos);
-    std::string file = cmd_s.substr(pos + 1);
-
-    // Trim the file string
-    file = _trim(file);
-
-    // Determine the redirection mode
-    int mode = (cmd_s[pos + 1] == '>') ? O_APPEND : O_TRUNC;
-
-    // If append mode, remove the extra '>' from the file string
-    if (mode == O_APPEND) {
-        file = _trim(file.substr(1));
-    }
-
-    // Open the file
-    int fd = open(file.c_str(), O_WRONLY | O_CREAT | mode, 0666);
-    if (fd == -1) {
-        perror("open");
-        return;
-    }
-
-    // Save the original stdout
-    int stdout_copy = dup(STDOUT_FILENO);
-
-    // Redirect stdout to the file
-    dup2(fd, STDOUT_FILENO);
-    close(fd);
-
-    // Execute the command
-    SmallShell::getInstance().executeCommand(command);
-
-    // Reset stdout
-    dup2(stdout_copy, STDOUT_FILENO);
-    close(stdout_copy);
 }
 
 
@@ -835,21 +957,22 @@ shared_ptr<Command> SmallShell::CreateCommand(const std::string& cmd_line)
         return make_shared<KillCommand>(cmd_line, &jobs);
     } else if (firstWord == "fg") {
         return make_shared<ForegroundCommand>(cmd_line, &jobs);
-    } else if (firstWord == "listdir") { // Add this condition
-        return make_shared<ListDirCommand>(cmd_line); // Create a new ListDirCommand instance
+    } else if (firstWord == "listdir") {
+        return make_shared<ListDirCommand>(cmd_line);
     } else if (firstWord == "getuser") {
         return make_shared<GetUserCommand>(cmd_line);
+    } else if (firstWord == "watch") {
+        return make_shared<WatchCommand>(cmd_line);
+    } else if (cmd_s.find('|') != std::string::npos) { // Check if the command line contains '|'
+        return make_shared<PipeCommand>(cmd_line);
+    } else if (cmd_s.find('>') != std::string::npos) { // Check if the command line contains '>'
+        return make_shared<RedirectionCommand>(cmd_line);
     } else {
         // Check if the first word is an alias
         if (isAlias(firstWord)) {
             // Replace the alias with the corresponding command
             string aliasCommand = getAlias(firstWord);
             cmd_s = cmd_s.replace(0, firstWord.length(), aliasCommand);
-        }
-
-        // Check for redirection in the command line
-        if (cmd_s.find('>') != string::npos) {
-            return make_shared<RedirectionCommand>(cmd_line);
         }
 
         return make_shared<ExternalCommand>(cmd_s);
@@ -910,7 +1033,7 @@ void SmallShell::executeCommand(const std::string& cmd_line)
     jobs.removeFinishedJobs();
 
     // Check if the command is a built-in command
-    if (!dynamic_cast<ExternalCommand*>(cmd.get())) {
+    if (!dynamic_cast<ExternalCommand*>(cmd.get()) && !dynamic_cast<WatchCommand*>(cmd.get())) {
         cmd->execute();
     } else {
         executeExternalCommand(cmd, isBackground);
