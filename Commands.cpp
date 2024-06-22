@@ -87,6 +87,14 @@ bool isBackgroundCommand(const std::string& cmd_line) {
     return !str.empty() && str.back() == '&';
 }
 
+void freeArgs(char** args, int num_args) {
+    for (int i = 0; i < num_args; i++) {
+        if (args[i]) {
+            free(args[i]);
+        }
+    }
+}
+
 
 //-------------------------------------- Command --------------------------------------
 
@@ -114,14 +122,11 @@ ChpromptCommand::ChpromptCommand(const string& cmd_line) : BuiltInCommand(cmd_li
 void ChpromptCommand::execute() {
     SmallShell& shell = SmallShell::getInstance(); // Get the existing instance (singleton)
     char* args[COMMAND_MAX_LENGTH];
-    _parseCommandLine(cmd_line.c_str(), args);
+    int num_args = _parseCommandLine(cmd_line.c_str(), args);
     string newPrompt = args[1] ? args[1] : "smash";
     shell.setPrompt(newPrompt); // Change the prompt of the existing instance
 
-    // Don't forget to free the memory allocated by _parseCommandLine
-    for (int i = 0; args[i]; i++) {
-        free(args[i]);
-    }
+    freeArgs(args, num_args);
 }
 
 
@@ -161,6 +166,7 @@ void ChangeDirCommand::execute() {
     // Check if the number of arguments is valid
     if (num_args > 2) {
         cerr << "smash error: cd: too many arguments" << endl;
+        freeArgs(args, num_args);
         return;
     }
 
@@ -168,6 +174,7 @@ void ChangeDirCommand::execute() {
 
     // If no path was provided, do nothing
     if (path == nullptr) {
+        freeArgs(args, num_args);
         return;
     }
 
@@ -176,6 +183,8 @@ void ChangeDirCommand::execute() {
         if (*lastPwd == nullptr) {
             // If OLDPWD is not set, print an error message
             cerr << "smash error: cd: OLDPWD not set" << endl;
+            freeArgs(args, num_args);
+
             return;
         }
         path = *lastPwd;
@@ -185,12 +194,15 @@ void ChangeDirCommand::execute() {
     char* currPwd = getcwd(nullptr, 0);
     if (currPwd == nullptr) {
         perror("smash error: getcwd failed");
+        freeArgs(args, num_args);
+        free(currPwd);
         return;
     }
 
     // Change the working directory
     if (chdir(path) == -1) {
         perror("smash error: chdir failed");
+        freeArgs(args, num_args);
         free(currPwd);
         return;
     }
@@ -198,9 +210,7 @@ void ChangeDirCommand::execute() {
     free(*lastPwd);
     *lastPwd = currPwd;
 
-    for (int i = 0; i < num_args; i++) {
-        free(args[i]);
-    }
+    freeArgs(args, num_args);
 }
 
 
@@ -221,6 +231,7 @@ void ForegroundCommand::execute() {
     // Check if the number of arguments is valid
     if (numArgs > 2) {
         cerr << "smash error: fg: invalid arguments" << endl;
+        freeArgs(args, numArgs);
         return;
     }
 
@@ -232,10 +243,12 @@ void ForegroundCommand::execute() {
             jobId = stoi(arg);
             if (jobId <= 0) {
                 cerr << "smash error: fg: invalid arguments" << endl;
+                freeArgs(args, numArgs);
                 return;
             }
         } else {
             cerr << "smash error: fg: invalid arguments" << endl;
+            freeArgs(args, numArgs);
             return;
         }
     }
@@ -247,6 +260,7 @@ void ForegroundCommand::execute() {
         job = jobs->getLastJob(&lastJobId);
         if (job == nullptr) {
             cerr << "smash error: fg: jobs list is empty" << endl;
+            freeArgs(args, numArgs);
             return;
         }
         jobId = lastJobId;
@@ -255,6 +269,7 @@ void ForegroundCommand::execute() {
         job = jobs->getJobById(jobId);
         if (job == nullptr) {
             cerr << "smash error: fg: job-id " << jobId << " does not exist" << endl;
+            freeArgs(args, numArgs);
             return;
         }
     }
@@ -273,9 +288,7 @@ void ForegroundCommand::execute() {
     // Remove the job from the jobs list
     jobs->removeJobById(jobId);
 
-    for (int i = 0; i < numArgs; i++) {
-        free(args[i]);
-    }
+    freeArgs(args, numArgs);
 }
 
 
@@ -287,10 +300,7 @@ void QuitCommand::execute() {
     if (numArgs > 1 && strcmp(args[1], "kill") == 0) {
         SmallShell::getInstance().getJobs().killAllJobs();
     }
-    // Don't forget to free the memory allocated by _parseCommandLine
-    for (int i = 0; i < numArgs; i++) {
-        free(args[i]);
-    }
+    freeArgs(args, numArgs);
     exit(0);
 }
 
@@ -304,6 +314,7 @@ void KillCommand::execute()
 
     if (num_args != 3 || args[1][0] != '-') {
         cerr << "smash error: kill: invalid arguments" << endl;
+        freeArgs(args, num_args);
         return;
     }
 
@@ -314,33 +325,34 @@ void KillCommand::execute()
         jobId = std::stoi(args[2]);
     } catch (std::invalid_argument& e) {
         cerr << "smash error: kill: invalid arguments" << endl;
+        freeArgs(args, num_args);
         return;
     }
 
     // Check if signum and jobId are positive
     if (signum <= 0 || jobId <= 0) {
         cerr << "smash error: kill: invalid arguments" << endl;
+        freeArgs(args, num_args);
         return;
     }
 
     JobsList::JobEntry *job = jobs->getJobById(jobId);
     if (!job) {
         cerr << "smash error: kill: job-id " << jobId << " does not exist" << endl;
+        freeArgs(args, num_args);
         return;
     }
 
     if (kill(job->getPid(), signum) == -1) {
         perror("smash error: kill failed");
+        freeArgs(args, num_args);
         return;
     }
 
     cout << "signal number " << signum << " was sent to pid " << job->getPid() << endl;
     jobs->removeJobById(jobId);
 
-    // Don't forget to free the memory allocated by _parseCommandLine
-    for (int i = 0; i < num_args; i++) {
-        free(args[i]);
-    }
+    freeArgs(args, num_args);
 }
 
 
@@ -431,18 +443,18 @@ void unaliasCommand::execute()
 
     if (num_args <= 1) { // No arguments provided
         cerr << "smash error: alias: Not enough arguments" << endl;
+        freeArgs(args, num_args);
         return;
     }
 
-    for (int i = 1; i < num_args; ++i) {
-        string name(args[i]);
-        if (!smash.isAlias(name)) { // Alias does not exist
-            cerr << "smash error: alias: " << name << " alias does not exist" << endl;
-            break;
-        }
+    string name(args[1]);
+    if (!smash.isAlias(name)) { // Alias does not exist
+        cerr << "smash error: alias: " << name << " alias does not exist" << endl;
+    } else {
         smash.removeAlias(name); // Remove the alias
-        free(args[i]); // Don't forget to free the memory
     }
+
+    freeArgs(args, num_args);
 }
 
 //---------------------------------- Special Commands ----------------------------------
@@ -498,6 +510,7 @@ void ListDirCommand::execute() {
     // Check the number of arguments
     if (num_args > 2) {
         cerr << "smash error: listdir: Too many arguments" << endl;
+        freeArgs(args, num_args);
         return;
     }
 
@@ -507,6 +520,7 @@ void ListDirCommand::execute() {
     int fd = open(dir_path.c_str(), O_RDONLY | O_DIRECTORY);
     if (fd == -1) {
         perror("Could not open directory");
+        freeArgs(args, num_args);
         return;
     }
 
@@ -564,10 +578,7 @@ void ListDirCommand::execute() {
         std::cout << "Directory: " << directory << std::endl;
     }
 
-    // Free the memory allocated for the arguments
-    for (int i = 0; i < num_args; i++) {
-        free(args[i]);
-    }
+    freeArgs(args, num_args);
 }
 //void ListDirCommand::execute() {
 //    char* args[COMMAND_MAX_ARGS];
@@ -623,6 +634,7 @@ void GetUserCommand::execute()
 
     if (num_args != 2) {
         cerr << "smash error: getuser: invalid number of arguments" << endl;
+        freeArgs(args, num_args);
         return;
     }
 
@@ -635,6 +647,7 @@ void GetUserCommand::execute()
     FILE* status = fopen(status_file.c_str(), "r");
     if (status == nullptr) {
         perror("smash error: fopen failed");
+        freeArgs(args, num_args);
         return;
     }
 
@@ -650,6 +663,7 @@ void GetUserCommand::execute()
 
     if (uid == numeric_limits<uid_t>::max()) {
         cerr << "smash error: getuser: failed to get UID of process " << pid << endl;
+        freeArgs(args, num_args);
         return;
     }
 
@@ -660,21 +674,20 @@ void GetUserCommand::execute()
         } else {
             perror("smash error: getpwuid failed");
         }
+        freeArgs(args, num_args);
         return;
     }
 
     if ((gr = getgrgid(pw->pw_gid)) == nullptr) {
         perror("smash error: getgrgid failed");
+        freeArgs(args, num_args);
         return;
     }
 
     cout << "User: " << pw->pw_name << endl; // Print username on a new line
     cout << "Group: " << gr->gr_name << endl; // Print group on a new line
 
-    // Don't forget to free the memory allocated by _parseCommandLine
-    for (int i = 0; i < num_args; i++) {
-        free(args[i]);
-    }
+    freeArgs(args, num_args);
 }
 
 
@@ -700,6 +713,7 @@ void PipeCommand::execute() {
     pid_t pid1 = fork();
     if (pid1 < 0) {
         perror("smash error: fork failed");
+        freeArgs(args1, num_args1);
         return;
     }
 
@@ -725,6 +739,8 @@ void PipeCommand::execute() {
     pid_t pid2 = fork();
     if (pid2 < 0) {
         perror("smash error: fork failed");
+        freeArgs(args1, num_args1);
+        freeArgs(args2, num_args2);
         return;
     }
 
@@ -746,12 +762,8 @@ void PipeCommand::execute() {
     waitpid(pid1, &status, 0);
     waitpid(pid2, &status, 0);
 
-    for (int i = 0; i < num_args1; i++) {
-        free(args1[i]);
-    }
-    for (int i = 0; i < num_args2; i++) {
-        free(args2[i]);
-    }
+    freeArgs(args1, num_args1);
+    freeArgs(args2, num_args2);
 }
 
 WatchCommand::WatchCommand(const string& cmd_line) : Command(cmd_line)
@@ -768,6 +780,7 @@ void WatchCommand::execute()
 
     if (num_args < 3) {
         cerr << "smash error: watch: command not specified" << endl;
+        freeArgs(args, num_args);
         return;
     }
 
@@ -776,19 +789,19 @@ void WatchCommand::execute()
         interval = std::stoi(args[1]);
     } catch (std::invalid_argument& e) {
         cerr << "smash error: watch: invalid interval" << endl;
+        freeArgs(args, num_args);
         return;
     }
 
     if (interval <= 0) {
         cerr << "smash error: watch: invalid interval" << endl;
+        freeArgs(args, num_args);
         return;
     }
 
     string command = args[2];
 
-    for (int i = 0; i < num_args; i++) {
-        free(args[i]);
-    }
+    freeArgs(args, num_args);
 
     while (true) {
         // Execute the command
@@ -911,10 +924,7 @@ void ExternalCommand::execute() {
         }
     }
 
-    // Free the memory allocated for the arguments
-    for (int i = 0; i < num_args; ++i) {
-        free(args[i]);
-    }
+    freeArgs(args, num_args);
 }
 
 
