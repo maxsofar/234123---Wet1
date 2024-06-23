@@ -171,9 +171,13 @@ void ChangeDirCommand::execute() {
     }
 
     char* path = args[1];
+    // Obtain the current working directory
+    char* currPwd = getcwd(nullptr, 0);
 
-    // If no path was provided, do nothing
+    // If no path was provided, change the lastPwd to the current directory and return
     if (path == nullptr) {
+        free(*lastPwd);
+        *lastPwd = currPwd;
         freeArgs(args, num_args);
         return;
     }
@@ -184,14 +188,12 @@ void ChangeDirCommand::execute() {
             // If OLDPWD is not set, print an error message
             cerr << "smash error: cd: OLDPWD not set" << endl;
             freeArgs(args, num_args);
-
+            free(currPwd);
             return;
         }
         path = *lastPwd;
     }
 
-    // Obtain the current working directory
-    char* currPwd = getcwd(nullptr, 0);
     if (currPwd == nullptr) {
         perror("smash error: getcwd failed");
         freeArgs(args, num_args);
