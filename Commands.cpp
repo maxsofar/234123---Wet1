@@ -304,7 +304,7 @@ void QuitCommand::execute() {
         SmallShell::getInstance().getJobs().killAllJobs();
     }
     freeArgs(args, numArgs);
-    exit(0);
+    throw QuitException();
 }
 
 
@@ -513,7 +513,6 @@ struct linux_dirent {
     unsigned short d_reclen;
     char d_name[];
 };
-
 
 void ListDirCommand::execute() {
     char* args[COMMAND_MAX_ARGS];
@@ -790,13 +789,13 @@ void JobsList::printJobsList() {
     }
 }
 
-void JobsList::addJob(shared_ptr<Command> cmd, bool isStopped, pid_t pid) {
+void JobsList::addJob(shared_ptr<Command> cmd, pid_t pid) {
     //TODO: check if jobID should be reused
 
     // Remove finished jobs from the jobs list
     removeFinishedJobs();
     int jobId = jobs.empty() ? 1 : maxJobId + 1;
-    jobs.push_back(JobEntry(jobId, cmd, isStopped, pid));
+    jobs.push_back(JobEntry(jobId, cmd, pid));
     maxJobId = jobId;  // Update the maximum job ID
 }
 
@@ -805,7 +804,9 @@ void JobsList::killAllJobs() {
     for (auto &job : jobs) {
         if (!job.isFinished()) {
             cout << job.getPid() << ": " << job.getCmdLine() << "&" << endl;
-            kill(job.getPid(), SIGKILL);
+            if(kill(job.getPid(), SIGKILL) == -1) {
+                perror("smash error: kill failed");
+            }
         }
     }
 }
@@ -967,7 +968,7 @@ void SmallShell::executeExternalCommand(const shared_ptr<Command>& cmd, bool isB
         if (isBackground) {
             // Don't wait for the child process to finish
             // Add the job to the jobs list
-            jobs.addJob(cmd, false, pid);
+            jobs.addJob(cmd, pid);
         } else {
             // Wait for the child process to finish
             fgPid = pid; // Update the PID of the foreground process

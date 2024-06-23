@@ -12,6 +12,14 @@
 #define COMMAND_MAX_LENGTH (200)
 #define COMMAND_MAX_ARGS (20)
 
+
+class QuitException : public std::exception {
+public:
+    const char* what() const noexcept override {
+        return "Quit command executed";
+    }
+};
+
 class Command {
 protected:
     std::string cmd_line;
@@ -20,8 +28,7 @@ public:
     virtual ~Command();
 
     virtual void execute() = 0;
-    //virtual void prepare();
-    //virtual void cleanup();
+
     const std::string& getCmdLine() const;
 
 };
@@ -31,11 +38,10 @@ public:
     class JobEntry {
         int jobId;
         std::shared_ptr<Command> cmd;
-        bool isStopped;
         pid_t pid;
     public:
-        JobEntry(int jobId, std::shared_ptr<Command> cmd, bool isStopped, pid_t pid)
-                : jobId(jobId), cmd(std::move(cmd)), isStopped(isStopped), pid(pid)  {}
+        JobEntry(int jobId, std::shared_ptr<Command> cmd, pid_t pid)
+                : jobId(jobId), cmd(std::move(cmd)), pid(pid)  {}
 
         int getJobId() const {
             return jobId;
@@ -68,7 +74,7 @@ public:
 
     ~JobsList() = default;
 
-    void addJob(std::shared_ptr<Command> cmd, bool isStopped, pid_t pid);
+    void addJob(std::shared_ptr<Command> cmd, pid_t pid);
 
     void printJobsList();
 
@@ -82,7 +88,6 @@ public:
 
     JobEntry *getLastJob(int *lastJobId);
 
-//    JobEntry *getLastStoppedJob(int *jobId);
 };
 
 class SmallShell {
