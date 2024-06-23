@@ -485,7 +485,7 @@ void RedirectionCommand::execute()
     // Open the file
     int fd = open(file.c_str(), O_WRONLY | O_CREAT | mode, 0666);
     if (fd == -1) {
-        perror("open");
+        perror("smash error: open failed");
         return;
     }
 
@@ -506,83 +506,6 @@ void RedirectionCommand::execute()
 
 ListDirCommand::ListDirCommand(const string& cmd_line) : BuiltInCommand(cmd_line)
 {}
-/*void ListDirCommand::execute() {
-    char* args[COMMAND_MAX_ARGS];
-    int num_args = _parseCommandLine(cmd_line.c_str(), args);
-
-    // Check the number of arguments
-    if (num_args > 2) {
-        cerr << "smash error: listdir: Too many arguments" << endl;
-        freeArgs(args, num_args);
-        return;
-    }
-
-    // Get the directory path
-    string dir_path = (num_args == 1) ? "." : args[1];
-    // Open the directory
-    int fd = open(dir_path.c_str(), O_RDONLY | O_DIRECTORY);
-    if (fd == -1) {
-        perror("Could not open directory");
-        freeArgs(args, num_args);
-        return;
-    }
-
-    char buffer[8192];
-    struct dirent* dirent;
-    off_t basep = 0;
-    ssize_t bytes_read;
-
-    vector<string> files;
-    vector<string> directories;
-
-    while ((bytes_read = getdirentries(fd, buffer, sizeof(buffer), &basep)) > 0) {
-        for (int i = 0; i < bytes_read; i += dirent->d_reclen) {
-            dirent = (struct dirent *) (&buffer[i]);
-
-            // Ignore hidden files and directories
-            if (dirent->d_name[0] == '.') {
-                continue;
-            }
-
-            // Get the full path of the entry
-            string full_path = dir_path + "/" + dirent->d_name;
-
-            // Get information about the entry
-            struct stat entry_stat;
-            if (stat(full_path.c_str(), &entry_stat) == -1) {
-                perror("Could not get entry information");
-                continue;
-            }
-
-            // Check if the entry is a file or a directory
-            if (S_ISREG(entry_stat.st_mode)) {
-                files.push_back(dirent->d_name);
-            } else if (S_ISDIR(entry_stat.st_mode)) {
-                directories.push_back(dirent->d_name);
-            }
-        }
-    }
-
-//    if (bytes_read == -1) {
-//        perror("Could not read directory entries");
-//    }
-
-    close(fd);
-
-    // Sort and print files
-    sort(files.begin(), files.end());
-    for (const auto& file : files) {
-        std::cout << "File: " << file << std::endl;
-    }
-
-    // Sort and print directories
-    sort(directories.begin(), directories.end());
-    for (const auto& directory : directories) {
-        std::cout << "Directory: " << directory << std::endl;
-    }
-
-    freeArgs(args, num_args);
-}*/
 
 struct linux_dirent {
     long d_ino;
@@ -605,7 +528,7 @@ void ListDirCommand::execute() {
     std::string dir_path = (num_args == 1) ? "." : args[1];
     int fd = open(dir_path.c_str(), O_RDONLY | O_DIRECTORY);
     if (fd == -1) {
-        perror("Could not open directory");
+        perror("smash error: open failed");
         freeArgs(args, num_args);
         return;
     }
@@ -630,7 +553,7 @@ void ListDirCommand::execute() {
 
             struct stat entry_stat;
             if (stat(full_path.c_str(), &entry_stat) == -1) {
-                perror("Could not get entry information");
+                perror("smash error: stat failed");
                 continue;
             }
 
