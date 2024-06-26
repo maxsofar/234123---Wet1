@@ -11,6 +11,7 @@
 #include <dirent.h>
 #include <sys/syscall.h>
 #include <sys/stat.h>
+#include <regex>
 
 using namespace std;
 
@@ -433,6 +434,7 @@ aliasCommand::aliasCommand(const string& cmd_line) : BuiltInCommand(cmd_line)
 {}
 void aliasCommand::execute()
 {
+    string cmd_line_orig = cmd_line;
     SmallShell& smash = SmallShell::getInstance();
 
     // Remove the 'alias' part from the command line
@@ -452,29 +454,30 @@ void aliasCommand::execute()
         return;
     }
 
-    // Check if there's an equal sign after the 'alias' keyword
-    if (cmd_line.find('=') == string::npos) {
-        cerr << "smash error: alias: Invalid command format" << endl;
+    // Check if the command line matches the regex
+    std::regex alias_regex("^alias [a-zA-Z0-9_]+='[^']*'$");
+    if (!std::regex_match(cmd_line_orig, alias_regex)) {
+        cerr << "smash error: alias: invalid alias format" << endl;
         return;
     }
 
     string name = _trim(cmd_line.substr(0, cmd_line.find('=')));
     string command = _trim(cmd_line.substr(cmd_line.find('=') + 1));
-
-    // Check if the command is surrounded by single quotes
-    if (command.front() == '\'' && command.back() == '\'') {
-        // Remove the single quotes from the command
-        command = command.substr(1, command.length() - 2);
-    } else {
-        cerr << "smash error: alias: Invalid command format" << endl;
-        return;
-    }
+    command = command.substr(1, command.length() - 2);
+//    // Check if the command is surrounded by single quotes
+//    if (command.front() == '\'' && command.back() == '\'') {
+//        // Remove the single quotes from the command
+//        command = command.substr(1, command.length() - 2);
+//    } else {
+//        cerr << "smash error: alias: invalid command format" << endl;
+//        return;
+//    }
 
     // Check if the name is a reserved keyword or already exists as an alias
     if (smash.isAlias(name) || SmallShell::RESERVED_KEYWORDS.find(name) != SmallShell::RESERVED_KEYWORDS.end()) {
         cerr << "smash error: alias: " << name << " already exists or is a reserved command" << endl;
     } else if (!isValidAlias(name, command)) {
-        cerr << "smash error: alias: Invalid alias format" << endl;
+        cerr << "smash error: alias: invalid alias format" << endl;
     } else {
         smash.addAlias(name, command);
     }
@@ -987,44 +990,45 @@ shared_ptr<Command> SmallShell::CreateCommand(const std::string& cmd_line)
     std::string cmd_s = _trim(cmd_line);
     std::string firstWord = cmd_s.substr(0, cmd_s.find_first_of(" \n"));
 
-    if (cmd_s.find('|') != std::string::npos) { // Check if the command line contains '|'
+    // Check if the first word is an alias
+    if (isAlias(firstWord)) {
+        // If it is an alias, replace it with its command
+        std::string aliasCommand = getAlias(firstWord);
+        cmd_s = cmd_s.replace(0, firstWord.length(), aliasCommand);
+        firstWord = cmd_s.substr(0, cmd_s.find_first_of(" \n")); // Update firstWord after replacing alias
+    }
+
+    if (firstWord == "alias") {
+        return make_shared<aliasCommand>(cmd_s);
+    } else if (cmd_s.find('|') != std::string::npos) { // Check if the command line contains '|'
         return make_shared<PipeCommand>(cmd_line);
     } else if (cmd_s.find('>') != std::string::npos) { // Check if the command line contains '>'
         return make_shared<RedirectionCommand>(cmd_line);
     } else if (firstWord == "chprompt") {
-        return make_shared<ChpromptCommand>(cmd_line);
+        return make_shared<ChpromptCommand>(cmd_s);
     } else if (firstWord == "showpid") {
         return make_shared<ShowPidCommand>(cmd_line);
     } else if (firstWord == "pwd") {
         return make_shared<GetCurrDirCommand>(cmd_line);
     } else if (firstWord == "cd") {
-        return make_shared<ChangeDirCommand>(cmd_line, &lastPwd);
+        return make_shared<ChangeDirCommand>(cmd_s, &lastPwd);
     } else if (firstWord == "jobs") {
         return make_shared<JobsCommand>(cmd_line, &jobs);
-    } else if (firstWord == "alias") {
-        return make_shared<aliasCommand>(cmd_line);
     } else if (firstWord == "unalias") {
-        return make_shared<unaliasCommand>(cmd_line);
+        return make_shared<unaliasCommand>(cmd_s);
     } else if (firstWord == "quit") {
-        return make_shared<QuitCommand>(cmd_line, &jobs);
+        return make_shared<QuitCommand>(cmd_s, &jobs);
     } else if (firstWord == "kill") {
-        return make_shared<KillCommand>(cmd_line, &jobs);
+        return make_shared<KillCommand>(cmd_s, &jobs);
     } else if (firstWord == "fg") {
-        return make_shared<ForegroundCommand>(cmd_line, &jobs);
+        return make_shared<ForegroundCommand>(cmd_s, &jobs);
     } else if (firstWord == "listdir") {
         return make_shared<ListDirCommand>(cmd_line);
     } else if (firstWord == "getuser") {
         return make_shared<GetUserCommand>(cmd_line);
     } else if (firstWord == "watch") {
-        return make_shared<WatchCommand>(cmd_line);
+        return make_shared<WatchCommand>(cmd_s);
     } else {
-        // Check if the first word is an alias
-        if (isAlias(firstWord)) {
-            // Replace the alias with the corresponding command
-            string aliasCommand = getAlias(firstWord);
-            cmd_s = cmd_s.replace(0, firstWord.length(), aliasCommand);
-        }
-
         return make_shared<ExternalCommand>(cmd_s);
     }
 }
