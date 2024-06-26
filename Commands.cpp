@@ -277,8 +277,13 @@ void ForegroundCommand::execute() {
         }
     }
 
-    // Print the command line of the job along with its PID
-    cout << job->getCmdLine() << "& " << job->getPid() << endl;
+//    // Print the command line of the job along with its PID
+//    cout << job->getCmdLine() << "& " << job->getPid() << endl;
+
+    ExternalCommand* extCmd = dynamic_cast<ExternalCommand*>(job->getCmd().get());
+    if (extCmd) {
+        cout << extCmd->getOriginalCmdLine() << " " << job->getPid() << endl;
+    }
 
     // Update the PID of the foreground process
     SmallShell::getInstance().setFgPid(job->getPid());
@@ -353,7 +358,6 @@ void KillCommand::execute()
     }
 
     cout << "signal number " << signum << " was sent to pid " << job->getPid() << endl;
-    jobs->removeJobById(jobId);
 
     freeArgs(args, num_args);
 }
@@ -656,69 +660,64 @@ void PipeCommand::execute() {
 
     std::string cmd_s = getCmdLine();
     size_t pos = cmd_s.find('|');
+    if (pos == std::string::npos) {
+        // No pipe character found
+        fprintf(stderr, "smash error: invalid pipe command\n");
+        return;
+    }
+
+    bool isPipeAnd = (pos + 1 < cmd_s.length() && cmd_s[pos + 1] == '&');
     std::string cmd1 = cmd_s.substr(0, pos);
-    std::string cmd2 = cmd_s.substr(pos + 1);
-
-    bool isStderr = cmd_s[pos + 1] == '&';
-
-    char* args1[COMMAND_MAX_ARGS];
-    int num_args1 = _parseCommandLine(cmd1.c_str(), args1);
+    std::string cmd2 = isPipeAnd ? cmd_s.substr(pos + 2) : cmd_s.substr(pos + 1);
 
     pid_t pid1 = fork();
     if (pid1 < 0) {
         perror("smash error: fork failed");
-        freeArgs(args1, num_args1);
         return;
     }
 
     if (pid1 == 0) {
-        close(pipefd[0]);
+        // Child process 1
+        close(pipefd[0]); // Close unused read end
         if (dup2(pipefd[1], STDOUT_FILENO) == -1) {
             perror("smash error: dup2 failed");
             exit(1);
         }
-        if (isStderr && dup2(pipefd[1], STDERR_FILENO) == -1) {
+        if (isPipeAnd && dup2(pipefd[1], STDERR_FILENO) == -1) {
             perror("smash error: dup2 failed");
             exit(1);
         }
-        if (execvp(args1[0], args1) < 0) {
-            perror("smash error: execvp failed");
-            exit(1);
-        }
+        close(pipefd[1]); // Close write end after duplication
+        SmallShell::getInstance().executeCommand(cmd1);
+        exit(0); // Exit child process
     }
-
-    char* args2[COMMAND_MAX_ARGS];
-    int num_args2 = _parseCommandLine(cmd2.c_str(), args2);
 
     pid_t pid2 = fork();
     if (pid2 < 0) {
         perror("smash error: fork failed");
-        freeArgs(args1, num_args1);
-        freeArgs(args2, num_args2);
         return;
     }
 
     if (pid2 == 0) {
-        close(pipefd[1]);
+        // Child process 2
+        close(pipefd[1]); // Close unused write end
         if (dup2(pipefd[0], STDIN_FILENO) == -1) {
             perror("smash error: dup2 failed");
             exit(1);
         }
-        if (execvp(args2[0], args2) < 0) {
-            perror("smash error: execvp failed");
-            exit(1);
-        }
+        close(pipefd[0]); // Close read end after duplication
+        SmallShell::getInstance().executeCommand(cmd2);
+        exit(0); // Exit child process
     }
 
-    close(pipefd[0]);
+    // Parent process
+    close(pipefd[0]); // Close both ends in parent
     close(pipefd[1]);
     int status;
-    waitpid(pid1, &status, 0);
-    waitpid(pid2, &status, 0);
-
-    freeArgs(args1, num_args1);
-    freeArgs(args2, num_args2);
+    waitpid(pid1, &status, 0); // Wait for first child
+    waitpid(pid2, &status, 0); // Wait for second child
 }
+
 
 WatchCommand::WatchCommand(const string& cmd_line) : Command(cmd_line)
 {}
@@ -772,25 +771,29 @@ JobsList::JobsList() : maxJobId(1)
 {}
 
 void JobsList::removeFinishedJobs() {
+    int highestRemainingJobId = 0;
     for (auto it = jobs.begin(); it != jobs.end(); ) {
         if (it->isFinished()) {
             it = jobs.erase(it);
         } else {
+            highestRemainingJobId = std::max(highestRemainingJobId, it->getJobId());
             ++it;
         }
     }
+    maxJobId = highestRemainingJobId;
 }
 
 void JobsList::printJobsList() {
     for (const auto& job : jobs) {
-        cout << "[" << job.getJobId() << "] "
-                  << job.getCmd()->getCmdLine() << "&"
-                  << endl;
+        ExternalCommand* extCmd = dynamic_cast<ExternalCommand*>(job.getCmd().get());
+        if (extCmd) {
+            cout << "[" << job.getJobId() << "] "
+                 << extCmd->getOriginalCmdLine() << endl;
+        }
     }
 }
 
 void JobsList::addJob(shared_ptr<Command> cmd, pid_t pid) {
-    //TODO: check if jobID should be reused
 
     // Remove finished jobs from the jobs list
     removeFinishedJobs();
@@ -803,7 +806,10 @@ void JobsList::killAllJobs() {
     cout << "smash: sending SIGKILL signal to " << jobs.size() << " jobs:" << endl;
     for (auto &job : jobs) {
         if (!job.isFinished()) {
-            cout << job.getPid() << ": " << job.getCmdLine() << "&" << endl;
+            ExternalCommand* extCmd = dynamic_cast<ExternalCommand*>(job.getCmd().get());
+            if (extCmd) {
+                cout << job.getPid() << ": " << extCmd->getOriginalCmdLine() << endl;
+            }
             if(kill(job.getPid(), SIGKILL) == -1) {
                 perror("smash error: kill failed");
             }
@@ -820,10 +826,13 @@ JobsList::JobEntry* JobsList::getJobById(int jobId) {
     return nullptr;  // No job with the given id was found
 }
 
-void JobsList::removeJobById(int jobId)
-{
+void JobsList::removeJobById(int jobId) {
     for (auto it = jobs.begin(); it != jobs.end(); ++it) {
         if (it->getJobId() == jobId) {
+            // If the job to be removed has the maximum job ID, decrement maxJobId
+            if (it->getJobId() == maxJobId) {
+                --maxJobId;
+            }
             jobs.erase(it);
             return;
         }
@@ -883,6 +892,16 @@ void ExternalCommand::execute() {
     freeArgs(args, num_args);
 }
 
+void ExternalCommand::setOriginalCmdLine(const string &cmd_line)
+{
+    originalCmdLine = cmd_line;
+}
+
+std::string ExternalCommand::getOriginalCmdLine() const
+{
+    return originalCmdLine;
+}
+
 
 //---------------------------------- Small Shell ----------------------------------
 
@@ -902,8 +921,11 @@ shared_ptr<Command> SmallShell::CreateCommand(const std::string& cmd_line)
     std::string cmd_s = _trim(cmd_line);
     std::string firstWord = cmd_s.substr(0, cmd_s.find_first_of(" \n"));
 
-
-    if (firstWord == "chprompt") {
+    if (cmd_s.find('|') != std::string::npos) { // Check if the command line contains '|'
+        return make_shared<PipeCommand>(cmd_line);
+    } else if (cmd_s.find('>') != std::string::npos) { // Check if the command line contains '>'
+        return make_shared<RedirectionCommand>(cmd_line);
+    } else if (firstWord == "chprompt") {
         return make_shared<ChpromptCommand>(cmd_line);
     } else if (firstWord == "showpid") {
         return make_shared<ShowPidCommand>(cmd_line);
@@ -929,10 +951,6 @@ shared_ptr<Command> SmallShell::CreateCommand(const std::string& cmd_line)
         return make_shared<GetUserCommand>(cmd_line);
     } else if (firstWord == "watch") {
         return make_shared<WatchCommand>(cmd_line);
-    } else if (cmd_s.find('|') != std::string::npos) { // Check if the command line contains '|'
-        return make_shared<PipeCommand>(cmd_line);
-    } else if (cmd_s.find('>') != std::string::npos) { // Check if the command line contains '>'
-        return make_shared<RedirectionCommand>(cmd_line);
     } else {
         // Check if the first word is an alias
         if (isAlias(firstWord)) {
@@ -1002,6 +1020,10 @@ void SmallShell::executeCommand(const std::string& cmd_line)
     if (!dynamic_cast<ExternalCommand*>(cmd.get()) && !dynamic_cast<WatchCommand*>(cmd.get())) {
         cmd->execute();
     } else {
+        if (dynamic_cast<ExternalCommand*>(cmd.get())) {
+            // Set the original command line for external commands
+            dynamic_cast<ExternalCommand*>(cmd.get())->setOriginalCmdLine(cmd_line);
+        }
         executeExternalCommand(cmd, isBackground);
     }
 }

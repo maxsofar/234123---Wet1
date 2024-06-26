@@ -272,6 +272,11 @@ public:
     ~ExternalCommand() override = default;
 
     void execute() override;
+
+    void setOriginalCmdLine(const std::string& cmd_line);
+    std::string getOriginalCmdLine() const;
+private:
+    std::string originalCmdLine;
 };
 
 class RedirectionCommand : public Command {
