@@ -11,7 +11,6 @@
 #include <dirent.h>
 #include <sys/syscall.h>
 #include <sys/stat.h>
-#include <vector>
 
 using namespace std;
 
@@ -315,6 +314,73 @@ void QuitCommand::execute() {
 
 KillCommand::KillCommand(const string& cmd_line, JobsList* jobs) : BuiltInCommand(cmd_line), jobs(jobs)
 {}
+/*void KillCommand::execute()
+{
+    char *args[COMMAND_MAX_ARGS];
+    int num_args = _parseCommandLine(cmd_line.c_str(), args);
+
+    if (num_args != 3) {
+        cerr << "smash error: kill: invalid arguments" << endl;
+        freeArgs(args, num_args);
+        return;
+    }
+
+    int jobId;
+    try {
+        jobId = std::stoi(args[2]);
+    } catch (std::invalid_argument& e) {
+        cerr << "smash error: kill: invalid arguments" << endl;
+        freeArgs(args, num_args);
+        return;
+    }
+
+    // Check if jobId is positive
+    if (jobId <= 0) {
+        cerr << "smash error: kill: invalid arguments" << endl;
+        freeArgs(args, num_args);
+        return;
+    }
+
+    // Check if the job with the given jobId exists
+    JobsList::JobEntry *job = jobs->getJobById(jobId);
+    if (!job) {
+        cerr << "smash error: kill: job-id " << jobId << " does not exist" << endl;
+        freeArgs(args, num_args);
+        return;
+    }
+
+    if (args[1][0] != '-') {
+        cerr << "smash error: kill: invalid arguments" << endl;
+        freeArgs(args, num_args);
+        return;
+    }
+
+    int signum;
+    try {
+        signum = std::stoi(args[1] + 1); // skip the '-'
+    } catch (std::invalid_argument& e) {
+        cerr << "smash error: kill: invalid arguments" << endl;
+        freeArgs(args, num_args);
+        return;
+    }
+
+    // Check if signum is positive
+    if (signum <= 0) {
+        cerr << "smash error: kill: invalid arguments" << endl;
+        freeArgs(args, num_args);
+        return;
+    }
+
+    if (kill(job->getPid(), signum) == -1) {
+        perror("smash error: kill failed");
+        freeArgs(args, num_args);
+        return;
+    }
+
+    cout << "signal number " << signum << " was sent to pid " << job->getPid() << endl;
+
+    freeArgs(args, num_args);
+}*/
 void KillCommand::execute()
 {
     char *args[COMMAND_MAX_ARGS];
@@ -380,8 +446,8 @@ void aliasCommand::execute()
 
     // If the command line is empty after removing 'alias', list all aliases
     if (cmd_line.empty()) {
-        for (const auto& alias : smash.getAliases()) {
-            cout << alias.first << "='" << alias.second << "'" << endl;
+        for (const auto& aliasName : smash.getAliasOrder()) {
+            cout << aliasName << "='" << smash.getAlias(aliasName) << "'" << endl;
         }
         return;
     }
@@ -432,7 +498,7 @@ bool aliasCommand::isValidAlias(const string& name, const string& command) {
     }
     return true;
 }
-const map<string, string>& SmallShell::getAliases() const
+const unordered_map<string, string>& SmallShell::getAliases() const
 {
     return aliases;
 }
@@ -1051,6 +1117,7 @@ const string& SmallShell::getAlias(const string& name)
 void SmallShell::addAlias(const string& name, const string& command)
 {
     aliases[name] = command;
+    aliasOrder.push_back(name);
 }
 
 void SmallShell::removeAlias(const string& name) {
@@ -1058,6 +1125,14 @@ void SmallShell::removeAlias(const string& name) {
     if (aliases.find(name) != aliases.end()) {
         // Remove the alias from the map
         aliases.erase(name);
+
+        // Find the alias in the aliasOrder vector
+        auto it = std::find(aliasOrder.begin(), aliasOrder.end(), name);
+
+        // If the alias was found, remove it from the vector
+        if (it != aliasOrder.end()) {
+            aliasOrder.erase(it);
+        }
     }
 }
 
@@ -1074,5 +1149,10 @@ pid_t SmallShell::getFgPid() const
 void SmallShell::setFgPid(pid_t fgPid)
 {
     this->fgPid = fgPid;
+}
+
+const std::vector<std::string> &SmallShell::getAliasOrder() const
+{
+    return aliasOrder;
 }
 
