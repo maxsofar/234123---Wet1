@@ -7,6 +7,8 @@
 #include <memory>
 #include <sys/wait.h>
 #include <set>
+#include <unordered_map>
+#include <vector>
 
 
 #define COMMAND_MAX_LENGTH (200)
@@ -96,7 +98,8 @@ private:
     char* lastPwd;
     std::string prompt = "smash";
     JobsList jobs;
-    std::map<std::string, std::string> aliases;
+    std::unordered_map<std::string, std::string> aliases;
+    std::vector<std::string> aliasOrder;
     pid_t fgPid;
 
     // methods
@@ -128,7 +131,8 @@ public:
     const std::string& getAlias(const std::string& name);
     void addAlias(const std::string& name, const std::string& command);
     void removeAlias(const std::string& name);
-    const std::map<std::string, std::string>& getAliases() const;
+    const std::unordered_map<std::string, std::string>& getAliases() const;
+    const std::vector<std::string>& getAliasOrder() const;
 
     JobsList& getJobs();
 
@@ -272,6 +276,11 @@ public:
     ~ExternalCommand() override = default;
 
     void execute() override;
+
+    void setOriginalCmdLine(const std::string& cmd_line);
+    std::string getOriginalCmdLine() const;
+private:
+    std::string originalCmdLine;
 };
 
 class RedirectionCommand : public Command {

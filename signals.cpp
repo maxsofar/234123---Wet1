@@ -24,8 +24,6 @@ void ctrlCHandler(int sig_num) {
     if (kill(fgPid, SIGINT) == 0) {
         // Print the message
         cout << "smash: process " << fgPid << " was killed" << endl;
-    } else {
-        perror("smash error: failed to send signal");
     }
 
     // Reset fgPid to -1

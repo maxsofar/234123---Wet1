@@ -11,7 +11,7 @@
 #include <dirent.h>
 #include <sys/syscall.h>
 #include <sys/stat.h>
-#include <vector>
+#include <regex>
 
 using namespace std;
 
@@ -277,8 +277,13 @@ void ForegroundCommand::execute() {
         }
     }
 
-    // Print the command line of the job along with its PID
-    cout << job->getCmdLine() << "& " << job->getPid() << endl;
+//    // Print the command line of the job along with its PID
+//    cout << job->getCmdLine() << "& " << job->getPid() << endl;
+
+    ExternalCommand* extCmd = dynamic_cast<ExternalCommand*>(job->getCmd().get());
+    if (extCmd) {
+        cout << extCmd->getOriginalCmdLine() << " " << job->getPid() << endl;
+    }
 
     // Update the PID of the foreground process
     SmallShell::getInstance().setFgPid(job->getPid());
@@ -310,6 +315,73 @@ void QuitCommand::execute() {
 
 KillCommand::KillCommand(const string& cmd_line, JobsList* jobs) : BuiltInCommand(cmd_line), jobs(jobs)
 {}
+/*void KillCommand::execute()
+{
+    char *args[COMMAND_MAX_ARGS];
+    int num_args = _parseCommandLine(cmd_line.c_str(), args);
+
+    if (num_args != 3) {
+        cerr << "smash error: kill: invalid arguments" << endl;
+        freeArgs(args, num_args);
+        return;
+    }
+
+    int jobId;
+    try {
+        jobId = std::stoi(args[2]);
+    } catch (std::invalid_argument& e) {
+        cerr << "smash error: kill: invalid arguments" << endl;
+        freeArgs(args, num_args);
+        return;
+    }
+
+    // Check if jobId is positive
+    if (jobId <= 0) {
+        cerr << "smash error: kill: invalid arguments" << endl;
+        freeArgs(args, num_args);
+        return;
+    }
+
+    // Check if the job with the given jobId exists
+    JobsList::JobEntry *job = jobs->getJobById(jobId);
+    if (!job) {
+        cerr << "smash error: kill: job-id " << jobId << " does not exist" << endl;
+        freeArgs(args, num_args);
+        return;
+    }
+
+    if (args[1][0] != '-') {
+        cerr << "smash error: kill: invalid arguments" << endl;
+        freeArgs(args, num_args);
+        return;
+    }
+
+    int signum;
+    try {
+        signum = std::stoi(args[1] + 1); // skip the '-'
+    } catch (std::invalid_argument& e) {
+        cerr << "smash error: kill: invalid arguments" << endl;
+        freeArgs(args, num_args);
+        return;
+    }
+
+    // Check if signum is positive
+    if (signum <= 0) {
+        cerr << "smash error: kill: invalid arguments" << endl;
+        freeArgs(args, num_args);
+        return;
+    }
+
+    if (kill(job->getPid(), signum) == -1) {
+        perror("smash error: kill failed");
+        freeArgs(args, num_args);
+        return;
+    }
+
+    cout << "signal number " << signum << " was sent to pid " << job->getPid() << endl;
+
+    freeArgs(args, num_args);
+}*/
 void KillCommand::execute()
 {
     char *args[COMMAND_MAX_ARGS];
@@ -353,7 +425,6 @@ void KillCommand::execute()
     }
 
     cout << "signal number " << signum << " was sent to pid " << job->getPid() << endl;
-    jobs->removeJobById(jobId);
 
     freeArgs(args, num_args);
 }
@@ -363,6 +434,7 @@ aliasCommand::aliasCommand(const string& cmd_line) : BuiltInCommand(cmd_line)
 {}
 void aliasCommand::execute()
 {
+    string cmd_line_orig = cmd_line;
     SmallShell& smash = SmallShell::getInstance();
 
     // Remove the 'alias' part from the command line
@@ -376,35 +448,28 @@ void aliasCommand::execute()
 
     // If the command line is empty after removing 'alias', list all aliases
     if (cmd_line.empty()) {
-        for (const auto& alias : smash.getAliases()) {
-            cout << alias.first << "='" << alias.second << "'" << endl;
+        for (const auto& aliasName : smash.getAliasOrder()) {
+            cout << aliasName << "='" << smash.getAlias(aliasName) << "'" << endl;
         }
         return;
     }
 
-    // Check if there's an equal sign after the 'alias' keyword
-    if (cmd_line.find('=') == string::npos) {
-        cerr << "smash error: alias: Invalid command format" << endl;
+    // Check if the command line matches the regex
+    std::regex alias_regex("^alias [a-zA-Z0-9_]+='[^']*'$");
+    if (!std::regex_match(cmd_line_orig, alias_regex)) {
+        cerr << "smash error: alias: invalid alias format" << endl;
         return;
     }
 
     string name = _trim(cmd_line.substr(0, cmd_line.find('=')));
     string command = _trim(cmd_line.substr(cmd_line.find('=') + 1));
-
-    // Check if the command is surrounded by single quotes
-    if (command.front() == '\'' && command.back() == '\'') {
-        // Remove the single quotes from the command
-        command = command.substr(1, command.length() - 2);
-    } else {
-        cerr << "smash error: alias: Invalid command format" << endl;
-        return;
-    }
+    command = command.substr(1, command.length() - 2);
 
     // Check if the name is a reserved keyword or already exists as an alias
     if (smash.isAlias(name) || SmallShell::RESERVED_KEYWORDS.find(name) != SmallShell::RESERVED_KEYWORDS.end()) {
         cerr << "smash error: alias: " << name << " already exists or is a reserved command" << endl;
     } else if (!isValidAlias(name, command)) {
-        cerr << "smash error: alias: Invalid alias format" << endl;
+        cerr << "smash error: alias: invalid alias format" << endl;
     } else {
         smash.addAlias(name, command);
     }
@@ -428,7 +493,7 @@ bool aliasCommand::isValidAlias(const string& name, const string& command) {
     }
     return true;
 }
-const map<string, string>& SmallShell::getAliases() const
+const unordered_map<string, string>& SmallShell::getAliases() const
 {
     return aliases;
 }
@@ -656,69 +721,64 @@ void PipeCommand::execute() {
 
     std::string cmd_s = getCmdLine();
     size_t pos = cmd_s.find('|');
+    if (pos == std::string::npos) {
+        // No pipe character found
+        fprintf(stderr, "smash error: invalid pipe command\n");
+        return;
+    }
+
+    bool isPipeAnd = (pos + 1 < cmd_s.length() && cmd_s[pos + 1] == '&');
     std::string cmd1 = cmd_s.substr(0, pos);
-    std::string cmd2 = cmd_s.substr(pos + 1);
-
-    bool isStderr = cmd_s[pos + 1] == '&';
-
-    char* args1[COMMAND_MAX_ARGS];
-    int num_args1 = _parseCommandLine(cmd1.c_str(), args1);
+    std::string cmd2 = isPipeAnd ? cmd_s.substr(pos + 2) : cmd_s.substr(pos + 1);
 
     pid_t pid1 = fork();
     if (pid1 < 0) {
         perror("smash error: fork failed");
-        freeArgs(args1, num_args1);
         return;
     }
 
     if (pid1 == 0) {
-        close(pipefd[0]);
+        // Child process 1
+        close(pipefd[0]); // Close unused read end
         if (dup2(pipefd[1], STDOUT_FILENO) == -1) {
             perror("smash error: dup2 failed");
             exit(1);
         }
-        if (isStderr && dup2(pipefd[1], STDERR_FILENO) == -1) {
+        if (isPipeAnd && dup2(pipefd[1], STDERR_FILENO) == -1) {
             perror("smash error: dup2 failed");
             exit(1);
         }
-        if (execvp(args1[0], args1) < 0) {
-            perror("smash error: execvp failed");
-            exit(1);
-        }
+        close(pipefd[1]); // Close write end after duplication
+        SmallShell::getInstance().executeCommand(cmd1);
+        exit(0); // Exit child process
     }
-
-    char* args2[COMMAND_MAX_ARGS];
-    int num_args2 = _parseCommandLine(cmd2.c_str(), args2);
 
     pid_t pid2 = fork();
     if (pid2 < 0) {
         perror("smash error: fork failed");
-        freeArgs(args1, num_args1);
-        freeArgs(args2, num_args2);
         return;
     }
 
     if (pid2 == 0) {
-        close(pipefd[1]);
+        // Child process 2
+        close(pipefd[1]); // Close unused write end
         if (dup2(pipefd[0], STDIN_FILENO) == -1) {
             perror("smash error: dup2 failed");
             exit(1);
         }
-        if (execvp(args2[0], args2) < 0) {
-            perror("smash error: execvp failed");
-            exit(1);
-        }
+        close(pipefd[0]); // Close read end after duplication
+        SmallShell::getInstance().executeCommand(cmd2);
+        exit(0); // Exit child process
     }
 
-    close(pipefd[0]);
+    // Parent process
+    close(pipefd[0]); // Close both ends in parent
     close(pipefd[1]);
     int status;
-    waitpid(pid1, &status, 0);
-    waitpid(pid2, &status, 0);
-
-    freeArgs(args1, num_args1);
-    freeArgs(args2, num_args2);
+    waitpid(pid1, &status, 0); // Wait for first child
+    waitpid(pid2, &status, 0); // Wait for second child
 }
+
 
 WatchCommand::WatchCommand(const string& cmd_line) : Command(cmd_line)
 {}
@@ -772,25 +832,29 @@ JobsList::JobsList() : maxJobId(1)
 {}
 
 void JobsList::removeFinishedJobs() {
+    int highestRemainingJobId = 0;
     for (auto it = jobs.begin(); it != jobs.end(); ) {
         if (it->isFinished()) {
             it = jobs.erase(it);
         } else {
+            highestRemainingJobId = std::max(highestRemainingJobId, it->getJobId());
             ++it;
         }
     }
+    maxJobId = highestRemainingJobId;
 }
 
 void JobsList::printJobsList() {
     for (const auto& job : jobs) {
-        cout << "[" << job.getJobId() << "] "
-                  << job.getCmd()->getCmdLine() << "&"
-                  << endl;
+        ExternalCommand* extCmd = dynamic_cast<ExternalCommand*>(job.getCmd().get());
+        if (extCmd) {
+            cout << "[" << job.getJobId() << "] "
+                 << extCmd->getOriginalCmdLine() << endl;
+        }
     }
 }
 
 void JobsList::addJob(shared_ptr<Command> cmd, pid_t pid) {
-    //TODO: check if jobID should be reused
 
     // Remove finished jobs from the jobs list
     removeFinishedJobs();
@@ -803,7 +867,10 @@ void JobsList::killAllJobs() {
     cout << "smash: sending SIGKILL signal to " << jobs.size() << " jobs:" << endl;
     for (auto &job : jobs) {
         if (!job.isFinished()) {
-            cout << job.getPid() << ": " << job.getCmdLine() << "&" << endl;
+            ExternalCommand* extCmd = dynamic_cast<ExternalCommand*>(job.getCmd().get());
+            if (extCmd) {
+                cout << job.getPid() << ": " << extCmd->getOriginalCmdLine() << endl;
+            }
             if(kill(job.getPid(), SIGKILL) == -1) {
                 perror("smash error: kill failed");
             }
@@ -820,10 +887,13 @@ JobsList::JobEntry* JobsList::getJobById(int jobId) {
     return nullptr;  // No job with the given id was found
 }
 
-void JobsList::removeJobById(int jobId)
-{
+void JobsList::removeJobById(int jobId) {
     for (auto it = jobs.begin(); it != jobs.end(); ++it) {
         if (it->getJobId() == jobId) {
+            // If the job to be removed has the maximum job ID, decrement maxJobId
+            if (it->getJobId() == maxJobId) {
+                --maxJobId;
+            }
             jobs.erase(it);
             return;
         }
@@ -883,15 +953,23 @@ void ExternalCommand::execute() {
     freeArgs(args, num_args);
 }
 
+void ExternalCommand::setOriginalCmdLine(const string &cmd_line)
+{
+    originalCmdLine = cmd_line;
+}
+
+std::string ExternalCommand::getOriginalCmdLine() const
+{
+    return originalCmdLine;
+}
+
 
 //---------------------------------- Small Shell ----------------------------------
 
-SmallShell::SmallShell(): lastPwd(nullptr), fgPid(-1) {
-// TODO: add your implementation
-}
+SmallShell::SmallShell(): lastPwd(nullptr), fgPid(-1)
+{}
 
 SmallShell::~SmallShell() {
-// TODO: add your implementation
     if (lastPwd != nullptr) {
         free(lastPwd);
     }
@@ -902,45 +980,45 @@ shared_ptr<Command> SmallShell::CreateCommand(const std::string& cmd_line)
     std::string cmd_s = _trim(cmd_line);
     std::string firstWord = cmd_s.substr(0, cmd_s.find_first_of(" \n"));
 
+    // Check if the first word is an alias
+    if (isAlias(firstWord)) {
+        // If it is an alias, replace it with its command
+        std::string aliasCommand = getAlias(firstWord);
+        cmd_s = cmd_s.replace(0, firstWord.length(), aliasCommand);
+        firstWord = cmd_s.substr(0, cmd_s.find_first_of(" \n")); // Update firstWord after replacing alias
+    }
 
-    if (firstWord == "chprompt") {
-        return make_shared<ChpromptCommand>(cmd_line);
+    if (firstWord == "alias") {
+        return make_shared<aliasCommand>(cmd_s);
+    } else if (cmd_s.find('|') != std::string::npos) { // Check if the command line contains '|'
+        return make_shared<PipeCommand>(cmd_line);
+    } else if (cmd_s.find('>') != std::string::npos) { // Check if the command line contains '>'
+        return make_shared<RedirectionCommand>(cmd_line);
+    } else if (firstWord == "chprompt") {
+        return make_shared<ChpromptCommand>(cmd_s);
     } else if (firstWord == "showpid") {
         return make_shared<ShowPidCommand>(cmd_line);
     } else if (firstWord == "pwd") {
         return make_shared<GetCurrDirCommand>(cmd_line);
     } else if (firstWord == "cd") {
-        return make_shared<ChangeDirCommand>(cmd_line, &lastPwd);
+        return make_shared<ChangeDirCommand>(cmd_s, &lastPwd);
     } else if (firstWord == "jobs") {
         return make_shared<JobsCommand>(cmd_line, &jobs);
-    } else if (firstWord == "alias") {
-        return make_shared<aliasCommand>(cmd_line);
     } else if (firstWord == "unalias") {
-        return make_shared<unaliasCommand>(cmd_line);
+        return make_shared<unaliasCommand>(cmd_s);
     } else if (firstWord == "quit") {
-        return make_shared<QuitCommand>(cmd_line, &jobs);
+        return make_shared<QuitCommand>(cmd_s, &jobs);
     } else if (firstWord == "kill") {
-        return make_shared<KillCommand>(cmd_line, &jobs);
+        return make_shared<KillCommand>(cmd_s, &jobs);
     } else if (firstWord == "fg") {
-        return make_shared<ForegroundCommand>(cmd_line, &jobs);
+        return make_shared<ForegroundCommand>(cmd_s, &jobs);
     } else if (firstWord == "listdir") {
         return make_shared<ListDirCommand>(cmd_line);
     } else if (firstWord == "getuser") {
         return make_shared<GetUserCommand>(cmd_line);
     } else if (firstWord == "watch") {
-        return make_shared<WatchCommand>(cmd_line);
-    } else if (cmd_s.find('|') != std::string::npos) { // Check if the command line contains '|'
-        return make_shared<PipeCommand>(cmd_line);
-    } else if (cmd_s.find('>') != std::string::npos) { // Check if the command line contains '>'
-        return make_shared<RedirectionCommand>(cmd_line);
+        return make_shared<WatchCommand>(cmd_s);
     } else {
-        // Check if the first word is an alias
-        if (isAlias(firstWord)) {
-            // Replace the alias with the corresponding command
-            string aliasCommand = getAlias(firstWord);
-            cmd_s = cmd_s.replace(0, firstWord.length(), aliasCommand);
-        }
-
         return make_shared<ExternalCommand>(cmd_s);
     }
 }
@@ -1002,6 +1080,10 @@ void SmallShell::executeCommand(const std::string& cmd_line)
     if (!dynamic_cast<ExternalCommand*>(cmd.get()) && !dynamic_cast<WatchCommand*>(cmd.get())) {
         cmd->execute();
     } else {
+        if (dynamic_cast<ExternalCommand*>(cmd.get())) {
+            // Set the original command line for external commands
+            dynamic_cast<ExternalCommand*>(cmd.get())->setOriginalCmdLine(cmd_line);
+        }
         executeExternalCommand(cmd, isBackground);
     }
 }
@@ -1029,6 +1111,7 @@ const string& SmallShell::getAlias(const string& name)
 void SmallShell::addAlias(const string& name, const string& command)
 {
     aliases[name] = command;
+    aliasOrder.push_back(name);
 }
 
 void SmallShell::removeAlias(const string& name) {
@@ -1036,6 +1119,14 @@ void SmallShell::removeAlias(const string& name) {
     if (aliases.find(name) != aliases.end()) {
         // Remove the alias from the map
         aliases.erase(name);
+
+        // Find the alias in the aliasOrder vector
+        auto it = std::find(aliasOrder.begin(), aliasOrder.end(), name);
+
+        // If the alias was found, remove it from the vector
+        if (it != aliasOrder.end()) {
+            aliasOrder.erase(it);
+        }
     }
 }
 
@@ -1052,5 +1143,10 @@ pid_t SmallShell::getFgPid() const
 void SmallShell::setFgPid(pid_t fgPid)
 {
     this->fgPid = fgPid;
+}
+
+const std::vector<std::string> &SmallShell::getAliasOrder() const
+{
+    return aliasOrder;
 }
 
