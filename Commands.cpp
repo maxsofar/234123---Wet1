@@ -464,14 +464,6 @@ void aliasCommand::execute()
     string name = _trim(cmd_line.substr(0, cmd_line.find('=')));
     string command = _trim(cmd_line.substr(cmd_line.find('=') + 1));
     command = command.substr(1, command.length() - 2);
-//    // Check if the command is surrounded by single quotes
-//    if (command.front() == '\'' && command.back() == '\'') {
-//        // Remove the single quotes from the command
-//        command = command.substr(1, command.length() - 2);
-//    } else {
-//        cerr << "smash error: alias: invalid command format" << endl;
-//        return;
-//    }
 
     // Check if the name is a reserved keyword or already exists as an alias
     if (smash.isAlias(name) || SmallShell::RESERVED_KEYWORDS.find(name) != SmallShell::RESERVED_KEYWORDS.end()) {
@@ -974,12 +966,10 @@ std::string ExternalCommand::getOriginalCmdLine() const
 
 //---------------------------------- Small Shell ----------------------------------
 
-SmallShell::SmallShell(): lastPwd(nullptr), fgPid(-1) {
-// TODO: add your implementation
-}
+SmallShell::SmallShell(): lastPwd(nullptr), fgPid(-1)
+{}
 
 SmallShell::~SmallShell() {
-// TODO: add your implementation
     if (lastPwd != nullptr) {
         free(lastPwd);
     }
