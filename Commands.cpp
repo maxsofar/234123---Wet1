@@ -315,73 +315,6 @@ void QuitCommand::execute() {
 
 KillCommand::KillCommand(const string& cmd_line, JobsList* jobs) : BuiltInCommand(cmd_line), jobs(jobs)
 {}
-/*void KillCommand::execute()
-{
-    char *args[COMMAND_MAX_ARGS];
-    int num_args = _parseCommandLine(cmd_line.c_str(), args);
-
-    if (num_args != 3) {
-        cerr << "smash error: kill: invalid arguments" << endl;
-        freeArgs(args, num_args);
-        return;
-    }
-
-    int jobId;
-    try {
-        jobId = std::stoi(args[2]);
-    } catch (std::invalid_argument& e) {
-        cerr << "smash error: kill: invalid arguments" << endl;
-        freeArgs(args, num_args);
-        return;
-    }
-
-    // Check if jobId is positive
-    if (jobId <= 0) {
-        cerr << "smash error: kill: invalid arguments" << endl;
-        freeArgs(args, num_args);
-        return;
-    }
-
-    // Check if the job with the given jobId exists
-    JobsList::JobEntry *job = jobs->getJobById(jobId);
-    if (!job) {
-        cerr << "smash error: kill: job-id " << jobId << " does not exist" << endl;
-        freeArgs(args, num_args);
-        return;
-    }
-
-    if (args[1][0] != '-') {
-        cerr << "smash error: kill: invalid arguments" << endl;
-        freeArgs(args, num_args);
-        return;
-    }
-
-    int signum;
-    try {
-        signum = std::stoi(args[1] + 1); // skip the '-'
-    } catch (std::invalid_argument& e) {
-        cerr << "smash error: kill: invalid arguments" << endl;
-        freeArgs(args, num_args);
-        return;
-    }
-
-    // Check if signum is positive
-    if (signum <= 0) {
-        cerr << "smash error: kill: invalid arguments" << endl;
-        freeArgs(args, num_args);
-        return;
-    }
-
-    if (kill(job->getPid(), signum) == -1) {
-        perror("smash error: kill failed");
-        freeArgs(args, num_args);
-        return;
-    }
-
-    cout << "signal number " << signum << " was sent to pid " << job->getPid() << endl;
-
-    freeArgs(args, num_args);
-}*/
 void KillCommand::execute()
 {
     char *args[COMMAND_MAX_ARGS];
@@ -405,7 +338,7 @@ void KillCommand::execute()
     }
 
     // Check if signum and jobId are positive
-    if (signum <= 0 || jobId <= 0) {
+    if (jobId <= 0) {
         cerr << "smash error: kill: invalid arguments" << endl;
         freeArgs(args, num_args);
         return;
@@ -419,6 +352,7 @@ void KillCommand::execute()
     }
 
     if (kill(job->getPid(), signum) == -1) {
+        cout << "signal number " << signum << " was sent to pid " << job->getPid() << endl;
         perror("smash error: kill failed");
         freeArgs(args, num_args);
         return;
