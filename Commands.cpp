@@ -315,73 +315,6 @@ void QuitCommand::execute() {
 
 KillCommand::KillCommand(const string& cmd_line, JobsList* jobs) : BuiltInCommand(cmd_line), jobs(jobs)
 {}
-/*void KillCommand::execute()
-{
-    char *args[COMMAND_MAX_ARGS];
-    int num_args = _parseCommandLine(cmd_line.c_str(), args);
-
-    if (num_args != 3) {
-        cerr << "smash error: kill: invalid arguments" << endl;
-        freeArgs(args, num_args);
-        return;
-    }
-
-    int jobId;
-    try {
-        jobId = std::stoi(args[2]);
-    } catch (std::invalid_argument& e) {
-        cerr << "smash error: kill: invalid arguments" << endl;
-        freeArgs(args, num_args);
-        return;
-    }
-
-    // Check if jobId is positive
-    if (jobId <= 0) {
-        cerr << "smash error: kill: invalid arguments" << endl;
-        freeArgs(args, num_args);
-        return;
-    }
-
-    // Check if the job with the given jobId exists
-    JobsList::JobEntry *job = jobs->getJobById(jobId);
-    if (!job) {
-        cerr << "smash error: kill: job-id " << jobId << " does not exist" << endl;
-        freeArgs(args, num_args);
-        return;
-    }
-
-    if (args[1][0] != '-') {
-        cerr << "smash error: kill: invalid arguments" << endl;
-        freeArgs(args, num_args);
-        return;
-    }
-
-    int signum;
-    try {
-        signum = std::stoi(args[1] + 1); // skip the '-'
-    } catch (std::invalid_argument& e) {
-        cerr << "smash error: kill: invalid arguments" << endl;
-        freeArgs(args, num_args);
-        return;
-    }
-
-    // Check if signum is positive
-    if (signum <= 0) {
-        cerr << "smash error: kill: invalid arguments" << endl;
-        freeArgs(args, num_args);
-        return;
-    }
-
-    if (kill(job->getPid(), signum) == -1) {
-        perror("smash error: kill failed");
-        freeArgs(args, num_args);
-        return;
-    }
-
-    cout << "signal number " << signum << " was sent to pid " << job->getPid() << endl;
-
-    freeArgs(args, num_args);
-}*/
 void KillCommand::execute()
 {
     char *args[COMMAND_MAX_ARGS];
@@ -405,7 +338,7 @@ void KillCommand::execute()
     }
 
     // Check if signum and jobId are positive
-    if (signum <= 0 || jobId <= 0) {
+    if (jobId <= 0) {
         cerr << "smash error: kill: invalid arguments" << endl;
         freeArgs(args, num_args);
         return;
@@ -419,6 +352,7 @@ void KillCommand::execute()
     }
 
     if (kill(job->getPid(), signum) == -1) {
+        cout << "signal number " << signum << " was sent to pid " << job->getPid() << endl;
         perror("smash error: kill failed");
         freeArgs(args, num_args);
         return;
@@ -507,19 +441,22 @@ void unaliasCommand::execute()
     string cmd_str = _trim(cmd_line); // Remove leading and trailing whitespaces
 
     char* args[COMMAND_MAX_ARGS];
-    int num_args = _parseCommandLine(cmd_str.c_str(), args); // Parse the command line
+    int num_args = _parseCommandLine(cmd_str.c_str(), args);
 
     if (num_args <= 1) { // No arguments provided
-        cerr << "smash error: alias: Not enough arguments" << endl;
+        cerr << "smash error: unalias: Not enough arguments" << endl;
         freeArgs(args, num_args);
         return;
     }
 
-    string name(args[1]);
-    if (!smash.isAlias(name)) { // Alias does not exist
-        cerr << "smash error: alias: " << name << " alias does not exist" << endl;
-    } else {
-        smash.removeAlias(name); // Remove the alias
+    for (int i = 1; i < num_args; ++i) {
+        string name(args[i]);
+        if (!smash.isAlias(name)) { // Alias does not exist
+            cerr << "smash error: unalias: " << name << " alias does not exist" << endl;
+            break;
+        } else {
+            smash.removeAlias(name); // Remove the alias
+        }
     }
 
     freeArgs(args, num_args);
@@ -991,19 +928,19 @@ shared_ptr<Command> SmallShell::CreateCommand(const std::string& cmd_line)
     if (firstWord == "alias") {
         return make_shared<aliasCommand>(cmd_s);
     } else if (cmd_s.find('|') != std::string::npos) { // Check if the command line contains '|'
-        return make_shared<PipeCommand>(cmd_line);
+        return make_shared<PipeCommand>(cmd_s);
     } else if (cmd_s.find('>') != std::string::npos) { // Check if the command line contains '>'
-        return make_shared<RedirectionCommand>(cmd_line);
+        return make_shared<RedirectionCommand>(cmd_s);
     } else if (firstWord == "chprompt") {
         return make_shared<ChpromptCommand>(cmd_s);
     } else if (firstWord == "showpid") {
-        return make_shared<ShowPidCommand>(cmd_line);
+        return make_shared<ShowPidCommand>(cmd_s);
     } else if (firstWord == "pwd") {
-        return make_shared<GetCurrDirCommand>(cmd_line);
+        return make_shared<GetCurrDirCommand>(cmd_s);
     } else if (firstWord == "cd") {
         return make_shared<ChangeDirCommand>(cmd_s, &lastPwd);
     } else if (firstWord == "jobs") {
-        return make_shared<JobsCommand>(cmd_line, &jobs);
+        return make_shared<JobsCommand>(cmd_s, &jobs);
     } else if (firstWord == "unalias") {
         return make_shared<unaliasCommand>(cmd_s);
     } else if (firstWord == "quit") {
@@ -1013,9 +950,9 @@ shared_ptr<Command> SmallShell::CreateCommand(const std::string& cmd_line)
     } else if (firstWord == "fg") {
         return make_shared<ForegroundCommand>(cmd_s, &jobs);
     } else if (firstWord == "listdir") {
-        return make_shared<ListDirCommand>(cmd_line);
+        return make_shared<ListDirCommand>(cmd_s);
     } else if (firstWord == "getuser") {
-        return make_shared<GetUserCommand>(cmd_line);
+        return make_shared<GetUserCommand>(cmd_s);
     } else if (firstWord == "watch") {
         return make_shared<WatchCommand>(cmd_s);
     } else {
