@@ -729,32 +729,31 @@ void WatchCommand::execute()
     char* args[COMMAND_MAX_ARGS];
     int num_args = _parseCommandLine(cmd_line.c_str(), args);
 
-    if (num_args < 3) {
+    int interval = 2; // Default interval is 2 seconds
+    if (num_args > 1 && args[1][0] == '-') {
+        try {
+            interval = std::stoi(args[1] + 1); // skip the '-' and convert to integer
+        } catch (std::invalid_argument& e) {
+            cerr << "smash error: watch: invalid interval" << endl;
+            freeArgs(args, num_args);
+            return;
+        }
+    }
+
+    if (num_args < 2) {
         cerr << "smash error: watch: command not specified" << endl;
         freeArgs(args, num_args);
         return;
     }
 
-    int interval;
-    try {
-        interval = std::stoi(args[1]);
-    } catch (std::invalid_argument& e) {
-        cerr << "smash error: watch: invalid interval" << endl;
-        freeArgs(args, num_args);
-        return;
-    }
-
-    if (interval <= 0) {
-        cerr << "smash error: watch: invalid interval" << endl;
-        freeArgs(args, num_args);
-        return;
-    }
-
-    string command = args[2];
+    string command = args[1][0] == '-' ? args[2] : args[1];
 
     freeArgs(args, num_args);
 
     while (true) {
+        // Clear the screen
+        system("clear");
+
         // Execute the command
         SmallShell::getInstance().executeCommand(command);
 
